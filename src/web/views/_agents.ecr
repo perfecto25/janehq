@@ -1,0 +1,47 @@
+<% if agents.empty? %>
+  <p class="muted">No agents have reported yet. Point a Jane agent's <code>[hq]</code> at this server on port <%= config.ingest_port %>.</p>
+<% else %>
+  <table class="agents">
+    <thead>
+      <tr>
+        <th>Status</th>
+        <th>Host</th>
+        <th>Alerts</th>
+        <th>CPU</th>
+        <th>Memory</th>
+        <th>Load</th>
+        <th>Last seen</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% agents.each do |a| %>
+        <% stale = a.stale?(stale_after, now) %>
+        <tr class="<%= a.alert_count > 0 ? "row-alert" : "row-ok" %><%= stale ? " row-stale" : "" %>">
+          <td>
+            <% if stale %>
+              <span class="badge badge-stale">offline</span>
+            <% elsif a.alert_count > 0 %>
+              <span class="badge badge-alert">alert</span>
+            <% else %>
+              <span class="badge badge-ok">ok</span>
+            <% end %>
+          </td>
+          <td><a href="/agent/<%= HTML.escape(a.hostname) %>"><%= HTML.escape(a.hostname) %></a>
+            <div class="muted small"><%= HTML.escape(a.os) %></div>
+          </td>
+          <td class="num">
+            <% if a.alert_count > 0 %>
+              <span class="alert-count"><%= a.alert_count %></span> / <%= a.check_count %>
+            <% else %>
+              <span class="muted">0</span> / <%= a.check_count %>
+            <% end %>
+          </td>
+          <td class="num"><%= HTML.escape(a.cpu_usage) %></td>
+          <td class="num"><%= HTML.escape(a.memory_usage) %></td>
+          <td class="num"><%= HTML.escape(a.load_avg) %></td>
+          <td class="muted small"><%= (now - a.last_seen) %>s ago</td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+<% end %>

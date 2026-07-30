@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JaneHQ</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/htmx.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">JaneHQ</a>
+    <form class="logout" method="post" action="/logout">
+      <button type="submit">Log out</button>
+    </form>
+  </header>
+  <main class="container">
+    <%= content %>
+  </main>
+</body>
+</html>

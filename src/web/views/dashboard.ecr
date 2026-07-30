@@ -1,0 +1,11 @@
+<div class="page-head">
+  <h1>Servers</h1>
+  <p class="subtitle">Ordered by alert severity. Auto-refreshes every 3s.</p>
+</div>
+<div id="agents"
+     hx-get="/partials/agents"
+     hx-trigger="load, every 3s"
+     hx-target="this"
+     hx-swap="innerHTML">
+  <p class="muted">Loading…</p>
+</div>

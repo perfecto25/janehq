@@ -1,0 +1,14 @@
+<h1>JaneHQ</h1>
+<p class="subtitle">Sign in to the console</p>
+<% if error %>
+  <p class="error"><%= HTML.escape(error.not_nil!) %></p>
+<% end %>
+<form method="post" action="/login">
+  <label>Username
+    <input type="text" name="username" autofocus autocomplete="username">
+  </label>
+  <label>Password
+    <input type="password" name="password" autocomplete="current-password">
+  </label>
+  <button type="submit">Sign in</button>
+</form>

@@ -1,0 +1,23 @@
+name: janehq
+version: 0.1.0
+
+authors:
+  - mreider <mike.reider@gmail.com>
+
+targets:
+  janehq:
+    main: src/server.cr
+
+dependencies:
+  kemal:
+    github: kemalcr/kemal
+  kemal-session:
+    github: kemalcr/kemal-session
+  msgpack:
+    github: crystal-community/msgpack-crystal
+  sqlite3:
+    github: crystal-lang/crystal-sqlite3
+
+crystal: '>= 1.19.1'
+
+license: MIT

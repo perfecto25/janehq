@@ -1,0 +1,55 @@
+<% stale = agent.stale?(stale_after, now) %>
+<div class="page-head">
+  <p><a href="/">&larr; All servers</a></p>
+  <h1><%= HTML.escape(agent.hostname) %>
+    <% if stale %>
+      <span class="badge badge-stale">offline</span>
+    <% elsif agent.alert_count > 0 %>
+      <span class="badge badge-alert"><%= agent.alert_count %> alert(s)</span>
+    <% else %>
+      <span class="badge badge-ok">ok</span>
+    <% end %>
+  </h1>
+  <p class="subtitle"><%= HTML.escape(agent.os) %> — last seen <%= (now - agent.last_seen) %>s ago (Jane <%= HTML.escape(agent.jane_version) %>)</p>
+</div>
+
+<section>
+  <h2>Checks</h2>
+  <table class="checks">
+    <thead>
+      <tr><th>Status</th><th>Check</th><th>Current</th><th>Threshold</th><th>Message</th></tr>
+    </thead>
+    <tbody>
+      <% checks.each do |c| %>
+        <tr class="<%= c.alert? ? "row-alert" : "row-ok" %>">
+          <td>
+            <% if c.alert? %>
+              <span class="badge badge-alert">alert</span>
+            <% else %>
+              <span class="badge badge-ok">ok</span>
+            <% end %>
+          </td>
+          <td><%= HTML.escape(c.name) %></td>
+          <td class="num"><%= HTML.escape(c.current) %></td>
+          <td class="num"><%= HTML.escape(c.threshold) %></td>
+          <td><%= HTML.escape(c.message) %></td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Metrics</h2>
+  <table class="metrics">
+    <tbody>
+      <tr><th>Kernel</th><td><%= HTML.escape(agent.kernel) %></td></tr>
+      <tr><th>Uptime</th><td><%= HTML.escape(agent.uptime) %></td></tr>
+      <tr><th>CPU</th><td><%= HTML.escape(agent.cpu_model) %> (<%= agent.cpu_cores %> cores)</td></tr>
+      <tr><th>CPU usage</th><td><%= HTML.escape(agent.cpu_usage) %></td></tr>
+      <tr><th>Load average</th><td><%= HTML.escape(agent.load_avg) %></td></tr>
+      <tr><th>Memory</th><td><%= HTML.escape(agent.used_memory) %> / <%= HTML.escape(agent.total_memory) %> used (<%= HTML.escape(agent.memory_usage) %>)</td></tr>
+      <tr><th>Free memory</th><td><%= HTML.escape(agent.free_memory) %></td></tr>
+    </tbody>
+  </table>
+</section>
