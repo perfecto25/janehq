@@ -82,10 +82,35 @@ module JaneHQ
     end
   end
 
+  # A row from the `host_groups` table. The seeded "All Hosts" group is the
+  # default: its membership is implicit (every agent), so it has no rows in
+  # `host_group_members` and cannot be edited or deleted.
+  struct GroupRecord
+    getter id : Int64
+    getter name : String
+    getter default : Bool
+    getter member_count : Int32
+
+    def initialize(@id, @name, @default, @member_count)
+    end
+
+    def self.from_rs(rs : DB::ResultSet) : GroupRecord
+      new(rs.read(Int64), rs.read(String), rs.read(Int64) == 1, rs.read(Int32))
+    end
+  end
+
   # Persistence layer over SQLite. Holds latest-state per agent (history is a
   # later phase). Safe for concurrent use from the ingest fiber and web fibers
   # via crystal-db's connection pool + a short busy timeout.
   class Storage
+    # Seeded on first migration; shows every agent and is not editable.
+    DEFAULT_GROUP_NAME = "All Hosts"
+
+    GROUP_COLUMNS = <<-SQL
+      g.id, g.name, g.is_default,
+      (SELECT COUNT(*) FROM host_group_members m WHERE m.group_id = g.id)
+      SQL
+
     AGENT_COLUMNS = <<-SQL
       id, hostname, os, kernel, uptime, cpu_model, cpu_cores, cpu_usage, load_avg,
       total_memory, used_memory, free_memory, memory_usage, jane_version,
@@ -166,6 +191,28 @@ module JaneHQ
         SQL
 
       @db.exec "CREATE INDEX IF NOT EXISTS idx_checks_agent ON checks(agent_id)"
+
+      @db.exec <<-SQL
+        CREATE TABLE IF NOT EXISTS host_groups (
+          id         INTEGER PRIMARY KEY AUTOINCREMENT,
+          name       TEXT NOT NULL UNIQUE,
+          is_default INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL
+        )
+        SQL
+
+      # Membership is keyed by hostname (the agent's only identifier on the
+      # wire) so a host can be grouped before it has ever reported.
+      @db.exec <<-SQL
+        CREATE TABLE IF NOT EXISTS host_group_members (
+          group_id INTEGER NOT NULL REFERENCES host_groups(id) ON DELETE CASCADE,
+          hostname TEXT NOT NULL,
+          PRIMARY KEY (group_id, hostname)
+        )
+        SQL
+
+      @db.exec "INSERT OR IGNORE INTO host_groups (name, is_default, created_at) VALUES (?, 1, ?)",
+        DEFAULT_GROUP_NAME, Time.utc.to_unix
     end
 
     # Store one agent report: upsert the agent row (refreshing metrics and the
@@ -215,6 +262,101 @@ module JaneHQ
       checks = [] of CheckRecord
       @db.query "SELECT name, status, current, threshold, message, tags, description " \
                 "FROM checks WHERE agent_id = ? ORDER BY (status='alert') DESC, name", agent_id do |rs|
+        rs.each { checks << CheckRecord.from_rs(rs) }
+      end
+      checks
+    end
+
+    # --- Host groups -------------------------------------------------------
+
+    # Default group first, then alphabetical — the order of the dashboard's
+    # group picker.
+    def all_groups : Array(GroupRecord)
+      groups = [] of GroupRecord
+      @db.query "SELECT #{GROUP_COLUMNS} FROM host_groups g ORDER BY g.is_default DESC, g.name" do |rs|
+        rs.each { groups << GroupRecord.from_rs(rs) }
+      end
+      groups
+    end
+
+    def group_by_id(id : Int64) : GroupRecord?
+      @db.query "SELECT #{GROUP_COLUMNS} FROM host_groups g WHERE g.id = ?", id do |rs|
+        return GroupRecord.from_rs(rs) if rs.move_next
+      end
+      nil
+    end
+
+    def default_group : GroupRecord
+      @db.query "SELECT #{GROUP_COLUMNS} FROM host_groups g WHERE g.is_default = 1" do |rs|
+        return GroupRecord.from_rs(rs) if rs.move_next
+      end
+      raise "default host group is missing"
+    end
+
+    def group_hostnames(group_id : Int64) : Array(String)
+      names = [] of String
+      @db.query "SELECT hostname FROM host_group_members WHERE group_id = ? ORDER BY hostname", group_id do |rs|
+        rs.each { names << rs.read(String) }
+      end
+      names
+    end
+
+    # Raises SQLite3::Exception on a duplicate name (UNIQUE on host_groups.name).
+    def create_group(name : String, hostnames : Array(String), now : Int64 = Time.utc.to_unix) : Int64
+      id = 0_i64
+      @db.transaction do |tx|
+        cnn = tx.connection
+        cnn.exec "INSERT INTO host_groups (name, is_default, created_at) VALUES (?, 0, ?)", name, now
+        id = cnn.scalar("SELECT id FROM host_groups WHERE name = ?", name).as(Int64)
+        replace_members(cnn, id, hostnames)
+      end
+      id
+    end
+
+    def update_group(id : Int64, name : String, hostnames : Array(String))
+      @db.transaction do |tx|
+        cnn = tx.connection
+        cnn.exec "UPDATE host_groups SET name = ? WHERE id = ? AND is_default = 0", name, id
+        replace_members(cnn, id, hostnames)
+      end
+    end
+
+    def delete_group(id : Int64)
+      @db.transaction do |tx|
+        cnn = tx.connection
+        cnn.exec "DELETE FROM host_group_members WHERE group_id = ?", id
+        cnn.exec "DELETE FROM host_groups WHERE id = ? AND is_default = 0", id
+      end
+    end
+
+    private def replace_members(cnn, group_id : Int64, hostnames : Array(String))
+      cnn.exec "DELETE FROM host_group_members WHERE group_id = ?", group_id
+      hostnames.uniq.each do |hostname|
+        next if hostname.blank?
+        cnn.exec "INSERT OR IGNORE INTO host_group_members (group_id, hostname) VALUES (?, ?)",
+          group_id, hostname
+      end
+    end
+
+    # Agents in one group, in the dashboard's severity order. The default
+    # group has no membership rows — it means "everything".
+    def agents_in_group(group : GroupRecord) : Array(AgentRecord)
+      return all_agents if group.default
+
+      agents = [] of AgentRecord
+      @db.query "SELECT #{AGENT_COLUMNS} FROM agents " \
+                "WHERE hostname IN (SELECT hostname FROM host_group_members WHERE group_id = ?) " \
+                "ORDER BY alert_count DESC, last_seen DESC", group.id do |rs|
+        rs.each { agents << AgentRecord.from_rs(rs) }
+      end
+      agents
+    end
+
+    # Only the alerting checks — what the dashboard's Glance popover shows.
+    def alert_checks_for(agent_id : Int64) : Array(CheckRecord)
+      checks = [] of CheckRecord
+      @db.query "SELECT name, status, current, threshold, message, tags, description " \
+                "FROM checks WHERE agent_id = ? AND status = 'alert' ORDER BY name", agent_id do |rs|
         rs.each { checks << CheckRecord.from_rs(rs) }
       end
       checks

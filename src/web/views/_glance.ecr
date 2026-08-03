@@ -1,0 +1,37 @@
+<% stale = agent.stale?(stale_after, now) %>
+<div class="glance-head">
+  <div>
+    <h2><%= HTML.escape(agent.hostname) %></h2>
+    <p class="muted small"><%= HTML.escape(agent.os) %> — last seen <%= (now - agent.last_seen) %>s ago</p>
+  </div>
+  <% if stale %>
+    <span class="badge badge-stale">offline</span>
+  <% elsif agent.alert_count > 0 %>
+    <span class="badge badge-alert"><%= agent.alert_count %> alert(s)</span>
+  <% else %>
+    <span class="badge badge-ok">ok</span>
+  <% end %>
+</div>
+
+<% if alerts.empty? %>
+  <p class="muted">Nothing wrong — all <%= agent.check_count %> checks are OK.</p>
+<% else %>
+  <ul class="glance-list">
+    <% alerts.each do |c| %>
+      <li>
+        <div class="glance-check">
+          <span class="glance-name"><%= HTML.escape(c.name) %></span>
+          <span class="glance-value"><span class="alert-count"><%= HTML.escape(c.current) %></span><% if !c.threshold.empty? %> <span class="muted">/ <%= HTML.escape(c.threshold) %></span><% end %></span>
+        </div>
+        <% if !c.message.empty? %>
+          <div class="muted small"><%= HTML.escape(c.message) %></div>
+        <% end %>
+      </li>
+    <% end %>
+  </ul>
+<% end %>
+
+<p class="glance-foot">
+  <a href="/agent/<%= URI.encode_path_segment(agent.hostname) %>">Open host page &rarr;</a>
+  <span class="muted small">Esc to close</span>
+</p>

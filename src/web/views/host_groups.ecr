@@ -1,0 +1,38 @@
+<div class="page-head">
+  <h1>Host Groups</h1>
+  <p class="subtitle">Group agents into environments such as Prod and UAT, then filter the dashboard by group.</p>
+</div>
+
+<p><a class="btn" href="/host-groups/new">+ New Group</a></p>
+
+<table class="groups">
+  <thead>
+    <tr><th>Group</th><th>Hosts</th><th></th></tr>
+  </thead>
+  <tbody>
+    <% groups.each do |g| %>
+      <tr>
+        <td>
+          <a href="/?group=<%= g.id %>"><%= HTML.escape(g.name) %></a>
+          <% if g.default %><span class="badge badge-ok">default</span><% end %>
+        </td>
+        <td class="num">
+          <% if g.default %>
+            <span class="muted">all (<%= agent_count %>)</span>
+          <% else %>
+            <%= g.member_count %>
+          <% end %>
+        </td>
+        <td class="row-actions">
+          <% unless g.default %>
+            <a href="/host-groups/<%= g.id %>/edit">Edit</a>
+            <form method="post" action="/host-groups/<%= g.id %>/delete"
+                  onsubmit="return confirm('Delete the group <%= HTML.escape(g.name) %>? The hosts themselves are not touched.')">
+              <button type="submit" class="link-danger">Delete</button>
+            </form>
+          <% end %>
+        </td>
+      </tr>
+    <% end %>
+  </tbody>
+</table>

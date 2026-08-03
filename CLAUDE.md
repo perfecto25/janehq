@@ -39,7 +39,7 @@ port = 25900
 
 ## Tests / checks
 ```bash
-crystal spec                 # 5 examples (wire decode, persist, ordering, staleness)
+crystal spec                 # 9 examples (wire decode, persist, ordering, staleness, host groups)
 crystal tool format --check
 ```
 
@@ -59,10 +59,16 @@ src/ingest/tcp_server.cr   IngestServer — raw TCP :25900, fiber per connection
 src/ingest/processor.cr    Processor.decode/process — bytes -> Payload -> persist
 src/web/server.cr          Web.configure: session, auth guard, wires routes
 src/web/auth.cr            GET/POST /login, POST /logout (constant-time cred compare)
-src/web/dashboard.cr       GET / , GET /partials/agents (htmx fragment), GET /agent/:hostname
-src/web/views/*.ecr        layout, layout_bare, login, dashboard, _agents, agent
-public/{app.css,htmx.min.js}
+src/web/dashboard.cr       GET / , GET /partials/agents + /partials/glance/:hostname, GET /agent/:hostname
+src/web/groups.cr          host group CRUD (list, new, create, edit, update, delete)
+src/web/admin.cr           placeholder pages for the unbuilt Admin menu items (/users, /alerts)
+src/web/views/*.ecr        layout, layout_bare, login, dashboard, _agents, _glance, agent,
+                           host_groups, group_form, placeholder
+public/{app.css,htmx.min.js,glance.js,nav.js,groups.js}
 ```
+
+Asset URLs carry `?v=JaneHQ::ASSET_VERSION` (server start time) — Kemal's StaticFileHandler
+sends no `Cache-Control`, so without it browsers serve a stale `app.css` after a rebuild.
 
 ### Wire format (critical — matches the agent exactly)
 The agent (`jane/src/daemon.cr`) builds `{checks, metrics, unmonitored, config}`, calls
@@ -79,17 +85,28 @@ reinserted each report (current snapshot). Dashboard query:
 `ORDER BY alert_count DESC, last_seen DESC`. An agent is "stale/offline" when
 `now - last_seen > JANEHQ_STALE_AFTER`.
 
+`host_groups` + `host_group_members` hold user-defined groups. Membership is keyed by
+**hostname** (the agent's only wire identifier), so a host can be grouped before it ever
+reports. The seeded `All Hosts` group has `is_default = 1`, **no** membership rows — it
+means "everything" — and the storage layer's update/delete are no-ops against it.
+
 ### Web notes
 - Kemal serves `./public` via StaticFileHandler, which runs *before* the `before_all` auth
   guard, so assets bypass auth and only `/login` needs whitelisting.
-- Dashboard shell has an htmx div `hx-get="/partials/agents" hx-trigger="load, every 3s"`;
-  the server returns the `_agents.ecr` HTML fragment and htmx swaps it in.
+- Dashboard shell has an htmx div `hx-get="/partials/agents?group=<id>" hx-trigger="load, every 3s"`;
+  the server returns the `_agents.ecr` HTML fragment and htmx swaps it in. `?group=` selects
+  the host group to show (bad/missing id falls back to `All Hosts`).
+- The Glance modal (`#glance` in `dashboard.ecr`) sits *outside* that swapped div so the 3s
+  refresh can't tear it down; `glance.js` also cancels the poll while it's open.
+- The New/Edit Group form posts its "Hosts in Group" column as a JSON array in the
+  `hostnames` field (`groups.js` serializes it on submit).
 - ECR paths in `render` are resolved relative to the CWD at compile time — build/run from
   the project root.
 
 ## Roadmap
 - **Phase 1 (done):** dashboard + console, servers ordered by severity, msgpack ingest.
-- **Phase 2:** agent groups (Prod/UAT), outbound alerting, alert level/frequency control,
+- **Phase 2:** agent groups (Prod/UAT) **done** — create/edit/delete groups, dashboard
+  filters by group. Still open: outbound alerting, alert level/frequency control,
   multi-user accounts (needs schema/auth expansion).
 - **Phase 3:** historical time-series metrics dashboards (CPU/RAM/filesystem). The agent
   already sends these metrics; we currently store only the latest — add history tables.

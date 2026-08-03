@@ -4,15 +4,28 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>JaneHQ</title>
-  <link rel="stylesheet" href="/app.css">
+  <link rel="stylesheet" href="/app.css?v=<%= JaneHQ::ASSET_VERSION %>">
   <script src="/htmx.min.js"></script>
+  <script src="/nav.js?v=<%= JaneHQ::ASSET_VERSION %>" defer></script>
 </head>
 <body>
+  <% path = env.request.path %>
   <header class="topbar">
     <a class="brand" href="/">JaneHQ</a>
-    <form class="logout" method="post" action="/logout">
-      <button type="submit">Log out</button>
-    </form>
+    <nav class="topnav">
+      <details class="menu">
+        <summary>Admin</summary>
+        <ul class="menu-items">
+          <li><a href="/" class="<%= path == "/" || path.starts_with?("/agent/") ? "active" : "" %>">Hosts</a></li>
+          <li><a href="/host-groups" class="<%= path == "/host-groups" ? "active" : "" %>">Host Groups</a></li>
+          <li><a href="/users" class="<%= path == "/users" ? "active" : "" %>">Users</a></li>
+          <li><a href="/alerts" class="<%= path == "/alerts" ? "active" : "" %>">Alerts</a></li>
+        </ul>
+      </details>
+      <form class="logout" method="post" action="/logout">
+        <button type="submit">Log out</button>
+      </form>
+    </nav>
   </header>
   <main class="container">
     <%= content %>

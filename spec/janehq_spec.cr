@@ -91,6 +91,71 @@ describe JaneHQ::Storage do
   end
 end
 
+describe "host groups" do
+  it "seeds a default \"All Hosts\" group that means every agent" do
+    with_storage do |storage|
+      storage.persist(JaneHQ::Processor.decode(wire_bytes(sample_report_json("web-01"))))
+      storage.persist(JaneHQ::Processor.decode(wire_bytes(sample_report_json("db-01"))))
+
+      groups = storage.all_groups
+      groups.size.should eq 1
+      groups.first.name.should eq JaneHQ::Storage::DEFAULT_GROUP_NAME
+      groups.first.default.should be_true
+
+      # Implicit membership: no rows, but every agent shows.
+      storage.group_hostnames(groups.first.id).should be_empty
+      storage.agents_in_group(groups.first).map(&.hostname).sort.should eq ["db-01", "web-01"]
+    end
+  end
+
+  it "returns only the member hosts of a created group, in severity order" do
+    with_storage do |storage|
+      storage.persist(JaneHQ::Processor.decode(wire_bytes(sample_report_json("prod-quiet", "ok"))))
+      storage.persist(JaneHQ::Processor.decode(wire_bytes(sample_report_json("prod-noisy", "alert"))))
+      storage.persist(JaneHQ::Processor.decode(wire_bytes(sample_report_json("uat-01"))))
+
+      id = storage.create_group("Prod", ["prod-quiet", "prod-noisy"])
+      group = storage.group_by_id(id).not_nil!
+
+      group.name.should eq "Prod"
+      group.default.should be_false
+      group.member_count.should eq 2
+      storage.agents_in_group(group).map(&.hostname).should eq ["prod-noisy", "prod-quiet"]
+      storage.all_groups.map(&.name).should eq [JaneHQ::Storage::DEFAULT_GROUP_NAME, "Prod"]
+    end
+  end
+
+  it "replaces membership on update and leaves agents alone on delete" do
+    with_storage do |storage|
+      storage.persist(JaneHQ::Processor.decode(wire_bytes(sample_report_json("web-01"))))
+      storage.persist(JaneHQ::Processor.decode(wire_bytes(sample_report_json("db-01"))))
+
+      id = storage.create_group("Prod", ["web-01"])
+      storage.update_group(id, "Production", ["db-01"])
+
+      group = storage.group_by_id(id).not_nil!
+      group.name.should eq "Production"
+      storage.group_hostnames(id).should eq ["db-01"]
+
+      storage.delete_group(id)
+      storage.group_by_id(id).should be_nil
+      storage.all_agents.size.should eq 2
+    end
+  end
+
+  it "refuses to delete or rename the default group" do
+    with_storage do |storage|
+      default = storage.default_group
+
+      storage.delete_group(default.id)
+      storage.update_group(default.id, "Renamed", [] of String)
+
+      storage.default_group.name.should eq JaneHQ::Storage::DEFAULT_GROUP_NAME
+      storage.all_groups.size.should eq 1
+    end
+  end
+end
+
 # Runs the block with a Storage backed by a throwaway on-disk SQLite file.
 def with_storage(&)
   path = File.tempname("janehq_spec", ".db")

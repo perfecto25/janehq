@@ -12,6 +12,11 @@ require "./web/server"
 module JaneHQ
   VERSION = "0.1.0"
 
+  # Cache-busting token appended to /public asset URLs. Kemal's
+  # StaticFileHandler only sends ETag/Last-Modified, so browsers happily serve
+  # a stale app.css after a rebuild; this changes on every server start.
+  ASSET_VERSION = Time.utc.to_unix.to_s
+
   def self.run
     Log.setup_from_env(default_level: :info)
 

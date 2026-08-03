@@ -1,5 +1,10 @@
 <% if agents.empty? %>
-  <p class="muted">No agents have reported yet. Point a Jane agent's <code>[hq]</code> at this server on port <%= config.ingest_port %>.</p>
+  <% if group.default %>
+    <p class="muted">No agents have reported yet. Point a Jane agent's <code>[hq]</code> at this server on port <%= config.ingest_port %>.</p>
+  <% else %>
+    <p class="muted">No reporting hosts in <%= HTML.escape(group.name) %> yet.
+      <a href="/host-groups/<%= group.id %>/edit">Edit the group</a> to add some.</p>
+  <% end %>
 <% else %>
   <table class="agents">
     <thead>
@@ -11,6 +16,7 @@
         <th>Memory</th>
         <th>Load</th>
         <th>Last seen</th>
+        <th class="glance-col">Glance</th>
       </tr>
     </thead>
     <tbody>
@@ -40,6 +46,22 @@
           <td class="num"><%= HTML.escape(a.memory_usage) %></td>
           <td class="num"><%= HTML.escape(a.load_avg) %></td>
           <td class="muted small"><%= (now - a.last_seen) %>s ago</td>
+          <td class="glance-col">
+            <button type="button" class="glance-btn"
+                    aria-label="Glance at <%= HTML.escape(a.hostname) %>"
+                    title="Glance"
+                    hx-get="/partials/glance/<%= URI.encode_path_segment(a.hostname) %>"
+                    hx-target="#glance-body"
+                    hx-swap="innerHTML"
+                    aria-haspopup="dialog">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                   stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                <circle cx="12" cy="12" r="3"></circle>
+              </svg>
+              <span>Glance</span>
+            </button>
+          </td>
         </tr>
       <% end %>
     </tbody>

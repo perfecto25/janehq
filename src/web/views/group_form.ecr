@@ -1,0 +1,50 @@
+<% editing = !group.nil? %>
+<div class="page-head">
+  <p><a href="/host-groups">&larr; Host Groups</a></p>
+  <h1><%= editing ? "Edit Group" : "New Group" %></h1>
+  <p class="subtitle">Drag hosts between the columns — or click one to move it — then save.</p>
+</div>
+
+<% if error %>
+  <p class="error"><%= HTML.escape(error) %></p>
+<% end %>
+
+<form method="post"
+      action="<%= editing ? "/host-groups/#{group.not_nil!.id}/update" : "/host-groups/create" %>"
+      id="group-form">
+  <label class="field">
+    <span>Group name</span>
+    <input type="text" name="name" value="<%= HTML.escape(name) %>" maxlength="60"
+           placeholder="Prod" autofocus required>
+  </label>
+
+  <!-- Filled from the "Hosts in Group" column on submit (public/groups.js). -->
+  <input type="hidden" name="hostnames" id="group-hostnames" value="">
+
+  <div class="dual-list">
+    <div class="dual-col">
+      <h2>Hosts in Group <span class="muted small" data-count-for="in-group"></span></h2>
+      <ul class="host-list" id="in-group" data-empty="Drag hosts here">
+        <% selected.each do |h| %>
+          <li class="host-item" draggable="true" data-hostname="<%= HTML.escape(h) %>"><%= HTML.escape(h) %></li>
+        <% end %>
+      </ul>
+    </div>
+
+    <div class="dual-col">
+      <h2>Available Hosts <span class="muted small" data-count-for="available"></span></h2>
+      <ul class="host-list" id="available" data-empty="No other hosts have reported">
+        <% available.each do |h| %>
+          <li class="host-item" draggable="true" data-hostname="<%= HTML.escape(h) %>"><%= HTML.escape(h) %></li>
+        <% end %>
+      </ul>
+    </div>
+  </div>
+
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary"><%= editing ? "Save Group" : "Create Group" %></button>
+    <a class="muted" href="/host-groups">Cancel</a>
+  </div>
+</form>
+
+<script src="/groups.js?v=<%= JaneHQ::ASSET_VERSION %>" defer></script>

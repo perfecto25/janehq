@@ -43,9 +43,13 @@ module JaneHQ
 
       define_auth_routes
       define_dashboard_routes
+      define_group_routes
+      define_admin_routes
     end
   end
 end
 
 require "./auth"
 require "./dashboard"
+require "./groups"
+require "./admin"

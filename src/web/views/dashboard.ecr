@@ -1,11 +1,36 @@
-<div class="page-head">
-  <h1>Servers</h1>
-  <p class="subtitle">Ordered by alert severity. Auto-refreshes every 3s.</p>
+<div class="page-head page-head-row">
+  <div>
+    <h1>Servers</h1>
+    <p class="subtitle">
+      <%= HTML.escape(group.name) %> — ordered by alert severity. Auto-refreshes every 3s.
+    </p>
+  </div>
+  <form class="group-filter" method="get" action="/">
+    <label for="group-select">Host Groups</label>
+    <select id="group-select" name="group">
+      <% groups.each do |g| %>
+        <option value="<%= g.id %>"<%= g.id == group.id ? " selected" : "" %>><%= HTML.escape(g.name) %></option>
+      <% end %>
+    </select>
+    <noscript><button type="submit" class="btn">Show</button></noscript>
+  </form>
 </div>
 <div id="agents"
-     hx-get="/partials/agents"
+     hx-get="/partials/agents?group=<%= group.id %>"
      hx-trigger="load, every 3s"
      hx-target="this"
      hx-swap="innerHTML">
   <p class="muted">Loading…</p>
 </div>
+
+<!-- Glance modal. Lives outside #agents so the 3s table swap never tears it
+     down; the body is filled by htmx from /partials/glance/:hostname. -->
+<!-- `hidden` (not just a CSS class) so a stale/missing stylesheet can never
+     leave this dumped inline under the table. -->
+<div id="glance" hidden aria-hidden="true">
+  <div class="glance-card" role="dialog" aria-modal="true" aria-label="Host glance">
+    <button type="button" class="glance-close" aria-label="Close">&times;</button>
+    <div id="glance-body"><p class="muted">Loading…</p></div>
+  </div>
+</div>
+<script src="/glance.js?v=<%= JaneHQ::ASSET_VERSION %>"></script>
