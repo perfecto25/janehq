@@ -156,6 +156,141 @@ describe "host groups" do
   end
 end
 
+describe JaneHQ::AlertRules do
+  it "maps the agent's check names onto event families" do
+    map = {
+      "CPU Usage"                         => "cpu_usage",
+      "CPU IO Wait"                       => "cpu_io_wait",
+      "Load Avg (5min)"                   => "load_average",
+      "Memory Usage"                      => "memory_usage",
+      "Filesystem root"                   => "filesystem_space",
+      "Network Interface em1 (em1 iface)" => "network_interface",
+      "Network Connection phoebe"         => "network_connection",
+      "Bandwidth uplink"                  => "bandwidth",
+      "Process nginx"                     => "process",
+      "File hosts"                        => "file_existence",
+      "File hosts user"                   => "file_uid",
+      "File hosts group"                  => "file_gid",
+      "File hosts mode"                   => "file_permission",
+    }
+    map.each do |name, event|
+      JaneHQ::AlertRules.event_for(name).should eq event
+    end
+
+    JaneHQ::AlertRules.event_for("Something Else").should be_nil
+  end
+
+  it "drops unknown picker values and keeps catalog order" do
+    JaneHQ::AlertRules.known_statuses(["changed", "bogus", "failed"])
+      .should eq ["failed", "changed"]
+    JaneHQ::AlertRules.known_events(["process", "nope"]).should eq ["process"]
+  end
+end
+
+describe "alert groups" do
+  it "stores a rule with its targets, conditions and action" do
+    with_storage do |storage|
+      storage.persist(JaneHQ::Processor.decode(wire_bytes(sample_report_json("web-01"))))
+      prod = storage.create_group("Prod", ["web-01"])
+
+      id = storage.create_alert_group(
+        "Trading alert",
+        [JaneHQ::AlertTarget.host("web-01"), JaneHQ::AlertTarget.new("group", prod.to_s)],
+        ["Filesystem root"],
+        ["failed", "changed"],
+        ["filesystem_space"],
+        "email",
+        "qbalerts@example.com",
+      )
+
+      rule = storage.alert_group_by_id(id).not_nil!
+      rule.name.should eq "Trading alert"
+      rule.enabled.should be_true
+      rule.services.should eq ["Filesystem root"]
+      rule.statuses.should eq ["failed", "changed"]
+      rule.events.should eq ["filesystem_space"]
+      rule.alert_type_label.should eq "Send email"
+      rule.alert_target.should eq "qbalerts@example.com"
+
+      # Host groups sort first and carry their current name.
+      storage.alert_group_targets(id).map(&.display)
+        .should eq ["Hostgroup Prod", "web-01"]
+    end
+  end
+
+  it "treats empty service, state and event lists as \"any\"" do
+    with_storage do |storage|
+      id = storage.create_alert_group("Everything", [JaneHQ::AlertTarget.host("web-01")],
+        [] of String, [] of String, [] of String, "slack", "https://hooks.slack.com/x")
+
+      rule = storage.alert_group_by_id(id).not_nil!
+      rule.service_summary.should eq "Any Service"
+      rule.status_summary.should eq "Any State"
+      rule.event_summary.should eq "Any Event"
+    end
+  end
+
+  it "replaces targets and conditions on update, and toggles enabled" do
+    with_storage do |storage|
+      id = storage.create_alert_group("Rule", [JaneHQ::AlertTarget.host("web-01")],
+        [] of String, ["failed"], [] of String, "email", "a@example.com")
+
+      storage.update_alert_group(id, "Renamed", [JaneHQ::AlertTarget.host("db-01")],
+        ["CPU Usage"], ["succeeded"], ["cpu_usage"], "exec", "/bin/true", false)
+
+      rule = storage.alert_group_by_id(id).not_nil!
+      rule.name.should eq "Renamed"
+      rule.enabled.should be_false
+      rule.services.should eq ["CPU Usage"]
+      rule.statuses.should eq ["succeeded"]
+      storage.alert_group_targets(id).map(&.ref).should eq ["db-01"]
+
+      storage.set_alert_group_enabled(id, true)
+      storage.alert_group_by_id(id).not_nil!.enabled.should be_true
+
+      storage.delete_alert_group(id)
+      storage.alert_group_by_id(id).should be_nil
+      storage.alert_group_targets(id).should be_empty
+    end
+  end
+
+  it "drops a deleted host group from the rules that watched it" do
+    with_storage do |storage|
+      prod = storage.create_group("Prod", ["web-01"])
+      id = storage.create_alert_group("Rule",
+        [JaneHQ::AlertTarget.new("group", prod.to_s), JaneHQ::AlertTarget.host("web-01")],
+        [] of String, ["failed"], [] of String, "email", "a@example.com")
+
+      storage.delete_group(prod)
+
+      storage.alert_group_targets(id).map(&.ref).should eq ["web-01"]
+    end
+  end
+
+  it "keeps rules watching the default host group, which cannot be deleted" do
+    with_storage do |storage|
+      default = storage.default_group
+      id = storage.create_alert_group("Rule",
+        [JaneHQ::AlertTarget.new("group", default.id.to_s)],
+        [] of String, ["failed"], [] of String, "email", "a@example.com")
+
+      storage.delete_group(default.id)
+
+      storage.alert_group_targets(id).map(&.display)
+        .should eq ["Hostgroup #{JaneHQ::Storage::DEFAULT_GROUP_NAME}"]
+    end
+  end
+
+  it "offers every reported check name as a service choice" do
+    with_storage do |storage|
+      storage.persist(JaneHQ::Processor.decode(wire_bytes(sample_report_json("web-01"))))
+      storage.persist(JaneHQ::Processor.decode(wire_bytes(sample_report_json("db-01"))))
+
+      storage.distinct_check_names.should eq ["CPU Usage", "Filesystem root", "Memory Usage"]
+    end
+  end
+end
+
 # Runs the block with a Storage backed by a throwaway on-disk SQLite file.
 def with_storage(&)
   path = File.tempname("janehq_spec", ".db")

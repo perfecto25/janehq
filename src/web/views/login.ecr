@@ -1,5 +1,6 @@
-<h1>JaneHQ</h1>
-<p class="subtitle">Sign in to the console</p>
+
+<div class="login-brand"><%= JaneHQ::LOGO_SVG %></div>
+<br>
 <% if error %>
   <p class="error"><%= HTML.escape(error.not_nil!) %></p>
 <% end %>

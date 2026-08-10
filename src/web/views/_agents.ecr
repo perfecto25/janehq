@@ -6,16 +6,19 @@
       <a href="/host-groups/<%= group.id %>/edit">Edit the group</a> to add some.</p>
   <% end %>
 <% else %>
+  <%# .table-scroll keeps a wide table inside its own scroll box — without it %>
+  <%# the page itself widens and the topbar nav slides off screen. %>
+  <div class="table-scroll">
   <table class="agents">
     <thead>
       <tr>
         <th>Status</th>
         <th>Host</th>
         <th>Alerts</th>
-        <th>CPU</th>
-        <th>Memory</th>
-        <th>Load</th>
-        <th>Last seen</th>
+        <th class="col-cpu">CPU</th>
+        <th class="col-mem">Memory</th>
+        <th class="col-load">Load</th>
+        <th class="col-seen">Last seen</th>
         <th class="glance-col">Glance</th>
       </tr>
     </thead>
@@ -42,10 +45,10 @@
               <span class="muted">0</span> / <%= a.check_count %>
             <% end %>
           </td>
-          <td class="num"><%= HTML.escape(a.cpu_usage) %></td>
-          <td class="num"><%= HTML.escape(a.memory_usage) %></td>
-          <td class="num"><%= HTML.escape(a.load_avg) %></td>
-          <td class="muted small"><%= (now - a.last_seen) %>s ago</td>
+          <td class="num col-cpu"><%= HTML.escape(a.cpu_usage) %></td>
+          <td class="num col-mem"><%= HTML.escape(a.memory_usage) %></td>
+          <td class="num col-load"><%= HTML.escape(a.load_avg) %></td>
+          <td class="muted small col-seen"><%= (now - a.last_seen) %>s ago</td>
           <td class="glance-col">
             <button type="button" class="glance-btn"
                     aria-label="Glance at <%= HTML.escape(a.hostname) %>"
@@ -66,4 +69,5 @@
       <% end %>
     </tbody>
   </table>
+  </div>
 <% end %>

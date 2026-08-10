@@ -1,9 +1,9 @@
 module JaneHQ
   module Web
-    # Destinations for the Admin menu. "Hosts" is the dashboard at "/" and
-    # "Host Groups" lives in groups.cr; the rest are Phase 2 features
-    # (multi-user accounts, outbound alerting) and render a placeholder so the
-    # menu never dead-ends.
+    # Destinations for the Admin menu. "Hosts" is the dashboard at "/",
+    # "Host Groups" lives in groups.cr and "Alerts" in alert_groups.cr; Users
+    # is still a Phase 2 feature and renders a placeholder so the menu never
+    # dead-ends.
     def self.define_admin_routes
       get "/users" do |env|
         title = "Users"
@@ -11,10 +11,9 @@ module JaneHQ
         render "src/web/views/placeholder.ecr", "src/web/views/layout.ecr"
       end
 
+      # Where the Alerts menu item used to point.
       get "/alerts" do |env|
-        title = "Alerts"
-        note = "Outbound alerting with level and frequency control is a Phase 2 feature — not built yet. Alerting checks are shown per host on the dashboard."
-        render "src/web/views/placeholder.ecr", "src/web/views/layout.ecr"
+        env.redirect "/alert-groups"
       end
     end
   end

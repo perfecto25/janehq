@@ -11,7 +11,9 @@
 <body>
   <% path = env.request.path %>
   <header class="topbar">
-    <a class="brand" href="/">JaneHQ</a>
+    <%# The logo is inlined (JaneHQ::LOGO_SVG) so its paths can inherit the %>
+    <%# topbar's colour; aria-label names the link, as there is no link text. %>
+    <a class="brand" href="/" aria-label="JaneHQ"><%= JaneHQ::LOGO_SVG %></a>
     <nav class="topnav">
       <details class="menu">
         <summary>Admin</summary>
@@ -19,7 +21,7 @@
           <li><a href="/" class="<%= path == "/" || path.starts_with?("/agent/") ? "active" : "" %>">Hosts</a></li>
           <li><a href="/host-groups" class="<%= path == "/host-groups" ? "active" : "" %>">Host Groups</a></li>
           <li><a href="/users" class="<%= path == "/users" ? "active" : "" %>">Users</a></li>
-          <li><a href="/alerts" class="<%= path == "/alerts" ? "active" : "" %>">Alerts</a></li>
+          <li><a href="/alert-groups" class="<%= path.starts_with?("/alert-groups") ? "active" : "" %>">Alerts</a></li>
         </ul>
       </details>
       <form class="logout" method="post" action="/logout">

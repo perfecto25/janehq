@@ -1,0 +1,75 @@
+<div class="page-head">
+  <h1>Alerts</h1>
+  <p class="subtitle">An alert group is one rule: the hosts and host groups it watches, which check results qualify, and how the alert is delivered.</p>
+</div>
+
+<p><a class="btn" href="/alert-groups/new">+ New Alert Group</a></p>
+
+<p class="notice">Delivery is not wired up yet — rules are saved and shown here, but nothing is sent.</p>
+
+<% if alert_groups.empty? %>
+  <p class="muted">No alert groups yet.</p>
+<% else %>
+  <div class="table-scroll">
+  <table class="alert-groups">
+    <thead>
+      <tr>
+        <th>Alert Group</th>
+        <th>Watching</th>
+        <th>Conditions</th>
+        <th>Action</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      <% alert_groups.each do |g| %>
+        <tr class="<%= g.enabled ? "" : "row-off" %>">
+          <td>
+            <a href="/alert-groups/<%= g.id %>/edit"><%= HTML.escape(g.name) %></a>
+            <% unless g.enabled %><span class="badge badge-stale">off</span><% end %>
+          </td>
+          <td>
+            <% watched = targets[g.id] %>
+            <% if watched.empty? %>
+              <span class="muted small">nothing — pick hosts to watch</span>
+            <% else %>
+              <% watched.each do |t| %>
+                <span class="chip <%= t.group? ? "chip-group" : "" %>"><%= HTML.escape(t.display) %></span>
+              <% end %>
+            <% end %>
+          </td>
+          <td class="small">
+            <div><span class="muted">Service</span> <%= HTML.escape(g.service_summary) %></div>
+            <div><span class="muted">State</span> <%= HTML.escape(g.status_summary) %></div>
+            <div><span class="muted">Event</span> <%= HTML.escape(g.event_summary) %></div>
+          </td>
+          <td class="small">
+            <div><%= HTML.escape(g.alert_type_label) %></div>
+            <div class="muted mono"><%= HTML.escape(g.alert_target) %></div>
+            <br>
+            Alert Frequency
+            <div class="muted">
+              <%= HTML.escape(g.alert_count_label) %>
+              <% if g.alert_count == "recurring" %>
+                 (<%= HTML.escape(g.alert_frequency_label) %>)
+              <% end %>
+            </div>
+          </td>
+          <td class="row-actions">
+            <div class="actions">
+              <form method="post" action="/alert-groups/<%= g.id %>/toggle">
+                <button type="submit" class="btn btn-small btn-disable"><%= g.enabled ? "Disable" : "Enable" %></button>
+              </form>
+              <a href="/alert-groups/<%= g.id %>/edit" class="btn btn-small btn-edit">Edit</a>
+              <form method="post" action="/alert-groups/<%= g.id %>/delete"
+                    onsubmit="return confirm('Delete the alert group <%= HTML.escape(g.name) %>?')">
+                <button type="submit" class="btn btn-small btn-danger">Delete</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+  </div>
+<% end %>

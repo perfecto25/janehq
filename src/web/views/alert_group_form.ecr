@@ -1,0 +1,193 @@
+<% editing = !group.nil? %>
+<% selected_type = JaneHQ::AlertRules.alert_type(form.alert_type) %>
+<div class="page-head">
+  <p><a href="/alert-groups">&larr; Alerts</a></p>
+  <h1><%= editing ? "Edit Alert Group" : "New Alert Group" %></h1>
+  <p class="subtitle">Pick what to watch, narrow it down by service, status and event, then choose how the alert is delivered.</p>
+</div>
+
+<% if error %>
+  <p class="error"><%= HTML.escape(error) %></p>
+<% end %>
+
+<form method="post" id="alert-form"
+      action="<%= editing ? "/alert-groups/#{group.not_nil!.id}/update" : "/alert-groups/create" %>">
+  <div class="rule-card">
+    <div class="rule-head">
+      <label class="field">
+        <span>Alert group name</span>
+        <input type="text" name="name" value="<%= HTML.escape(form.name) %>" maxlength="60"
+               placeholder="PROD Trading Server Alert" autofocus required>
+      </label>
+      <label class="switch">
+        <input type="checkbox" name="enabled" value="1" <%= form.enabled ? "checked" : "" %>>
+        <span>Enabled</span>
+      </label>
+    </div>
+
+    <p class="rule-lead">IF <em>any</em> of the following conditions are met:</p>
+
+    <div class="rule-row">
+      <%# Hosts and host groups this rule watches. %>
+      <details class="picker" data-any="Select hosts">
+        <summary><span class="picker-label"><%= HTML.escape(form.target_summary) %></span></summary>
+        <div class="picker-menu">
+          <div class="picker-head">
+            <span>Hosts &amp; host groups</span>
+            <button type="button" class="picker-clear">Clear</button>
+          </div>
+          <input type="search" class="picker-filter" placeholder="Filter…" aria-label="Filter hosts">
+          <div class="picker-items">
+            <p class="picker-section">Host groups</p>
+            <% host_groups.each do |hg| %>
+              <% token = "group:#{hg.id}" %>
+              <label class="picker-item">
+                <input type="checkbox" name="targets" value="<%= token %>"
+                       data-label="Hostgroup <%= HTML.escape(hg.name) %>"
+                       <%= form.target?(token) ? "checked" : "" %>>
+                <span><%= HTML.escape(hg.name) %></span>
+              </label>
+            <% end %>
+
+            <p class="picker-section">Hosts</p>
+            <% if hostnames.empty? %>
+              <p class="picker-empty">No agents have reported yet.</p>
+            <% end %>
+            <% hostnames.each do |h| %>
+              <% token = "host:#{h}" %>
+              <label class="picker-item">
+                <input type="checkbox" name="targets" value="<%= HTML.escape(token) %>"
+                       data-label="<%= HTML.escape(h) %>"
+                       <%= form.target?(token) ? "checked" : "" %>>
+                <span><%= HTML.escape(h) %></span>
+              </label>
+            <% end %>
+          </div>
+        </div>
+      </details>
+
+      <%# Services: the check names agents report. Nothing checked = any. %>
+      <details class="picker" data-any="Any Service">
+        <summary><span class="picker-label"><%= HTML.escape(form.service_summary) %></span></summary>
+        <div class="picker-menu">
+          <div class="picker-head">
+            <span>Services</span>
+            <button type="button" class="picker-clear">Any Service</button>
+          </div>
+          <input type="search" class="picker-filter" placeholder="Filter…" aria-label="Filter services">
+          <div class="picker-items">
+            <% if service_names.empty? %>
+              <p class="picker-empty">No checks have been reported yet — leave this as Any Service.</p>
+            <% end %>
+            <% service_names.each do |name| %>
+              <label class="picker-item">
+                <input type="checkbox" name="services" value="<%= HTML.escape(name) %>"
+                       data-label="<%= HTML.escape(name) %>"
+                       <%= form.service?(name) ? "checked" : "" %>>
+                <span>
+                  <%= HTML.escape(name) %>
+                  <% if hint = JaneHQ::AlertRules.event_label_for(name) %>
+                    <em class="picker-hint"><%= HTML.escape(hint) %></em>
+                  <% end %>
+                </span>
+              </label>
+            <% end %>
+          </div>
+        </div>
+      </details>
+
+      <%# States: nothing checked = any. %>
+      <details class="picker" data-any="Any State">
+        <summary><span class="picker-label"><%= HTML.escape(form.status_summary) %></span></summary>
+        <div class="picker-menu">
+          <div class="picker-head">
+            <span>States</span>
+            <button type="button" class="picker-clear">Any State</button>
+          </div>
+          <div class="picker-items">
+            <% JaneHQ::AlertRules::STATUSES.each do |status| %>
+              <label class="picker-item">
+                <input type="checkbox" name="statuses" value="<%= status.value %>"
+                       data-label="<%= status.label %>"
+                       <%= form.statuses.includes?(status.value) ? "checked" : "" %>>
+                <span><%= status.label %></span>
+              </label>
+            <% end %>
+          </div>
+        </div>
+      </details>
+
+      <%# Events: the agent's check families. Nothing checked = any. %>
+      <details class="picker" data-any="Any Event">
+        <summary><span class="picker-label"><%= HTML.escape(form.event_summary) %></span></summary>
+        <div class="picker-menu">
+          <div class="picker-head">
+            <span>Events</span>
+            <button type="button" class="picker-clear">Any Event</button>
+          </div>
+          <div class="picker-items">
+            <% JaneHQ::AlertRules::EVENTS.each do |event| %>
+              <label class="picker-item">
+                <input type="checkbox" name="events" value="<%= event.value %>"
+                       data-label="<%= event.label %>"
+                       <%= form.events.includes?(event.value) ? "checked" : "" %>>
+                <span><%= event.label %></span>
+              </label>
+            <% end %>
+          </div>
+        </div>
+      </details>
+    </div>
+
+    <p class="rule-lead">THEN perform the following action:</p>
+
+    <div class="rule-row">
+      <select name="alert_type" id="alert-type">
+        <% JaneHQ::AlertRules::ALERT_TYPES.each do |type| %>
+          <option value="<%= type.value %>"
+                  data-target-label="<%= HTML.escape(type.target_label) %>"
+                  data-placeholder="<%= HTML.escape(type.placeholder) %>"
+                  <%= type.value == selected_type.value ? "selected" : "" %>><%= type.label %></option>
+        <% end %>
+      </select>
+
+      <label class="field grow">
+        <span id="alert-target-label"><%= HTML.escape(selected_type.target_label) %></span>
+        <input type="text" name="alert_target" id="alert-target"
+               value="<%= HTML.escape(form.alert_target) %>"
+               placeholder="<%= HTML.escape(selected_type.placeholder) %>" required>
+      </label>
+    </div>
+
+    <p class="muted small">Delivery is not implemented yet — the destination is stored for when it is.</p>
+
+    <p class="rule-lead">Alert Frequency:</p>
+
+    <div class="rule-row">
+      <label class="field">
+        <span># of Alerts</span>
+        <select name="alert_count" id="alert-count">
+          <% JaneHQ::AlertRules::ALERT_COUNTS.each do |count| %>
+            <option value="<%= count.value %>" <%= count.value == form.alert_count ? "selected" : "" %>><%= count.label %></option>
+          <% end %>
+        </select>
+      </label>
+
+      <label class="field" id="alert-frequency-field">
+        <span>Time Frequency</span>
+        <select name="alert_frequency_minutes" id="alert-frequency">
+          <% JaneHQ::AlertRules::ALERT_FREQUENCIES.each do |freq| %>
+            <option value="<%= freq.value %>" <%= freq.value == form.alert_frequency_minutes.to_s ? "selected" : "" %>><%= freq.label %></option>
+          <% end %>
+        </select>
+      </label>
+    </div>
+  </div>
+
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary"><%= editing ? "Save Alert Group" : "Create Alert Group" %></button>
+    <a class="muted" href="/alert-groups">Cancel</a>
+  </div>
+</form>
+
+<script src="/alerts.js?v=<%= JaneHQ::ASSET_VERSION %>" defer></script>

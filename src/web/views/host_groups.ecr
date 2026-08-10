@@ -5,6 +5,7 @@
 
 <p><a class="btn" href="/host-groups/new">+ New Group</a></p>
 
+<div class="table-scroll">
 <table class="groups">
   <thead>
     <tr><th>Group</th><th>Hosts</th><th></th></tr>
@@ -25,14 +26,17 @@
         </td>
         <td class="row-actions">
           <% unless g.default %>
-            <a href="/host-groups/<%= g.id %>/edit">Edit</a>
-            <form method="post" action="/host-groups/<%= g.id %>/delete"
-                  onsubmit="return confirm('Delete the group <%= HTML.escape(g.name) %>? The hosts themselves are not touched.')">
-              <button type="submit" class="link-danger">Delete</button>
-            </form>
+            <div class="actions">
+              <a href="/host-groups/<%= g.id %>/edit" class="btn btn-small btn-edit">Edit</a>
+              <form method="post" action="/host-groups/<%= g.id %>/delete"
+                    onsubmit="return confirm('Delete the group <%= HTML.escape(g.name) %>? The hosts themselves are not touched.')">
+                <button type="submit" class="btn btn-small btn-danger">Delete</button>
+              </form>
+            </div>
           <% end %>
         </td>
       </tr>
     <% end %>
   </tbody>
 </table>
+</div>

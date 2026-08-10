@@ -15,6 +15,7 @@
 
 <section>
   <h2>Checks</h2>
+  <div class="table-scroll">
   <table class="checks">
     <thead>
       <tr><th>Status</th><th>Check</th><th>Current</th><th>Threshold</th><th>Message</th></tr>
@@ -37,10 +38,12 @@
       <% end %>
     </tbody>
   </table>
+  </div>
 </section>
 
 <section>
   <h2>Metrics</h2>
+  <div class="table-scroll">
   <table class="metrics">
     <tbody>
       <tr><th>Kernel</th><td><%= HTML.escape(agent.kernel) %></td></tr>
@@ -52,4 +55,5 @@
       <tr><th>Free memory</th><td><%= HTML.escape(agent.free_memory) %></td></tr>
     </tbody>
   </table>
+  </div>
 </section>

@@ -17,6 +17,13 @@ module JaneHQ
   # a stale app.css after a rebuild; this changes on every server start.
   ASSET_VERSION = Time.utc.to_unix.to_s
 
+  # The topbar logo, embedded at compile time and inlined into the page by
+  # layout.ecr rather than linked as an <img>: inline, its bow and "Jane" paths
+  # (fill:currentColor) take the topbar's text colour, while the "HQ" keeps the
+  # brand red. The file's XML prolog and Inkscape comment are dropped — they are
+  # not valid inside an HTML document.
+  LOGO_SVG = {{ read_file("#{__DIR__}/../public/logo.svg") }}.sub(/\A.*?<svg/m, "<svg")
+
   def self.run
     Log.setup_from_env(default_level: :info)
 

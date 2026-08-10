@@ -12,6 +12,9 @@
 
 * { box-sizing: border-box; }
 
+/* Stop iOS inflating text when an iPhone/iPad is turned to landscape. */
+html { -webkit-text-size-adjust: 100%; }
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -27,11 +30,21 @@ a:hover { text-decoration: underline; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.75rem 1.5rem;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.6rem clamp(0.85rem, 3vw, 1.5rem);
   background: var(--panel);
   border-bottom: 1px solid var(--border);
 }
-.brand { font-weight: 700; font-size: 1.1rem; color: var(--text); }
+/* The inlined logo.svg is the whole brand — its bow and "Jane" paths are
+   fill:currentColor, so they follow this colour while "HQ" stays brand red.
+   Change the width to resize it; the topbar grows to match. */
+.brand { display: flex; align-items: center; color: var(--text); }
+.brand:hover { text-decoration: none; opacity: 0.85; }
+.brand svg { display: block; width: clamp(112px, 20vw, 150px); height: auto; }
+
+.login-brand { color: var(--text); margin-bottom: 0.5rem; }
+.login-brand svg { display: block; width: 100%; max-width: 260px; height: auto; }
 
 .topnav { display: flex; align-items: center; gap: 0.6rem; }
 .menu { position: relative; }
@@ -57,6 +70,7 @@ a:hover { text-decoration: underline; }
   right: 0;
   z-index: 60;
   min-width: 175px;
+  max-width: calc(100vw - 1.5rem);
   margin: 0;
   padding: 0.3rem;
   list-style: none;
@@ -84,15 +98,39 @@ a:hover { text-decoration: underline; }
 }
 .logout button:hover { color: var(--text); border-color: var(--muted); }
 
-.container { max-width: 1100px; margin: 0 auto; padding: 1.5rem; }
+.container {
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: clamp(0.85rem, 3vw, 1.5rem);
+}
 .page-head { margin-bottom: 1rem; }
-.page-head h1 { margin: 0.2rem 0; }
+.page-head h1 { margin: 0.2rem 0; font-size: clamp(1.45rem, 1.05rem + 1.7vw, 2rem); }
 .subtitle { color: var(--muted); margin: 0.2rem 0 0; }
 .muted { color: var(--muted); }
 .small { font-size: 0.85rem; }
 
+/* Wide tables scroll inside their own box. Without this the table widens the
+   page itself, which pushes the topbar nav off screen on narrow viewports. */
+.table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
-th, td { text-align: left; padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--border); }
+/* Long hostnames and check messages wrap instead of forcing the table wider. */
+th, td {
+  text-align: left;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: break-word;
+}
+/* Below these widths a table scrolls rather than squashing to nothing; the
+   narrow breakpoints below drop the min-width once columns are hidden. */
+.agents { min-width: 700px; }
+.checks { min-width: 560px; }
+.alert-groups { min-width: 760px; }
 thead th { color: var(--muted); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 
@@ -120,8 +158,9 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   gap: 1rem;
   flex-wrap: wrap;
 }
-.group-filter { display: flex; align-items: center; gap: 0.5rem; }
+.group-filter { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 .group-filter label { color: var(--muted); font-size: 0.85rem; }
+.group-filter select { min-width: 0; }
 select, .field input {
   background: var(--panel);
   color: var(--text);
@@ -146,20 +185,22 @@ select:focus, .field input:focus { outline: none; border-color: var(--accent); }
 .btn-primary { background: var(--accent); border-color: var(--accent); color: #0b1120; font-weight: 600; }
 .btn-primary:hover { color: #0b1120; opacity: 0.9; }
 
+.btn-info { background: var(--accent); border-color: var(--accent); color: #07121f; font-weight: 600; }
+.btn-info:hover { color: #176796; opacity: 0.9; }
+
 .row-actions { text-align: right; white-space: nowrap; }
-.row-actions form { display: inline; }
-.link-danger {
-  background: none;
-  border: none;
-  color: var(--alert);
-  font: inherit;
-  cursor: pointer;
-  padding: 0 0 0 0.75rem;
-}
-.link-danger:hover { text-decoration: underline; }
+.row-actions .actions { display: flex; flex-direction: row; align-items: center; justify-content: flex-end; gap: 0.4rem; }
+.row-actions form { display: contents; }
+.row-actions .btn { width: 5rem; text-align: center; }
+.btn-disable { border-color: #fff; }
+.btn-disable:hover { border-color: #fff; color: var(--accent); }
+.btn-edit { color: #58a6ff; border-color: #58a6ff; }
+.btn-edit:hover { color: #58a6ff; border-color: #58a6ff; opacity: 0.85; }
+.btn-danger { color: var(--alert); border-color: var(--alert); }
+.btn-danger:hover { color: var(--alert); border-color: var(--alert); opacity: 0.85; }
 
 /* New / Edit Group: two-column host picker */
-.field { display: block; max-width: 320px; }
+.field { display: block; width: 100%; max-width: 320px; }
 .field span { display: block; color: var(--muted); font-size: 0.85rem; margin-bottom: 0.25rem; }
 .field input { width: 100%; }
 
@@ -200,10 +241,170 @@ select:focus, .field input:focus { outline: none; border-color: var(--accent); }
 .host-item:hover { border-color: var(--accent); }
 .host-item.is-dragging { opacity: 0.4; cursor: grabbing; }
 
-.form-actions { display: flex; align-items: center; gap: 1rem; margin-top: 1.5rem; }
+.form-actions { display: flex; align-items: center; gap: 1rem; margin-top: 1.5rem; flex-wrap: wrap; }
 
 section { margin-top: 2rem; }
 .metrics th { width: 180px; color: var(--muted); }
+
+/* Alerts: rule list */
+.notice {
+  background: rgba(88, 166, 255, 0.08);
+  border: 1px solid rgba(88, 166, 255, 0.35);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.row-off { opacity: 0.6; }
+.btn-small { padding: 0.15rem 0.5rem; font-size: 0.8rem; }
+/* Alert destinations can be a long exec command or webhook URL — break them
+   anywhere rather than letting one long token widen the table. */
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+.alert-groups td { vertical-align: top; }
+.alert-groups td.row-actions { vertical-align: middle; }
+
+.chip {
+  display: inline-block;
+  margin: 0 0.25rem 0.25rem 0;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+.chip-group { border-color: var(--accent); color: var(--accent); }
+
+/* Alerts: the Monit-style rule editor */
+.rule-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem 1.2rem 1.2rem;
+}
+.rule-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+.rule-lead { color: var(--muted); margin: 1.1rem 0 0.5rem; }
+.rule-lead em { color: var(--accent); font-style: normal; }
+.rule-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.field.grow { flex: 1 1 260px; max-width: none; }
+
+.switch { display: inline-flex; align-items: center; gap: 0.4rem; color: var(--muted); cursor: pointer; }
+.switch input { accent-color: var(--accent); }
+
+/* One picker: a <details> whose summary shows the current selection. */
+.picker { position: relative; flex: 1 1 200px; min-width: 0; }
+.picker > summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.4rem 0.55rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+.picker > summary::-webkit-details-marker { display: none; }
+.picker > summary::after { content: "\25be"; color: var(--muted); font-size: 0.8em; }
+.picker > summary:hover { border-color: var(--muted); }
+.picker[open] > summary { border-color: var(--accent); }
+.picker-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.9rem;
+}
+.picker-label.is-any { color: var(--muted); }
+
+.picker-menu {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  z-index: 40;
+  width: max(100%, 260px);
+  max-width: calc(100vw - 2rem);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.5);
+  padding: 0.4rem;
+}
+.picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.2rem 0.35rem 0.4rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.picker-clear {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font: inherit;
+  text-transform: none;
+  letter-spacing: normal;
+  cursor: pointer;
+  padding: 0;
+}
+.picker-clear:hover { text-decoration: underline; }
+.picker-filter {
+  width: 100%;
+  margin-bottom: 0.35rem;
+  padding: 0.3rem 0.45rem;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 0.85rem;
+}
+.picker-filter:focus { outline: none; border-color: var(--accent); }
+.picker-items { max-height: 260px; overflow-y: auto; }
+.picker-section {
+  margin: 0.35rem 0 0.2rem;
+  padding: 0 0.35rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.picker-empty { margin: 0.2rem 0.35rem; color: var(--muted); font-size: 0.85rem; }
+.picker-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.3rem 0.35rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.picker-item:hover { background: rgba(88, 166, 255, 0.1); }
+.picker-item.is-hidden { display: none; }
+.field.is-hidden { display: none; }
+.picker-item input { accent-color: var(--accent); }
+.picker-hint { color: var(--muted); font-style: normal; font-size: 0.78rem; }
 
 /* Glance: eye button in the agent table + the hover modal it opens */
 .glance-col { width: 1%; white-space: nowrap; text-align: right; }
@@ -234,7 +435,7 @@ section { margin-top: 2rem; }
   background: rgba(0, 0, 0, 0.55);
   align-items: center;
   justify-content: center;
-  padding: 1.5rem;
+  padding: clamp(0.75rem, 3vw, 1.5rem);
 }
 #glance.is-open { display: flex; }
 .glance-card {
@@ -243,7 +444,7 @@ section { margin-top: 2rem; }
   border: 1px solid var(--border);
   border-radius: 12px;
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
-  padding: 1.1rem 1.4rem;
+  padding: 1.1rem clamp(0.9rem, 3vw, 1.4rem);
   width: min(640px, 100%);
   max-height: 85vh;
   overflow-y: auto;
@@ -297,13 +498,19 @@ section { margin-top: 2rem; }
 }
 
 /* Login */
-.centered { display: flex; min-height: 100vh; align-items: center; justify-content: center; }
+.centered {
+  display: flex;
+  min-height: 100vh;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
 .login-card {
   background: var(--panel);
   border: 1px solid var(--border);
-  padding: 2rem;
+  padding: clamp(1.25rem, 5vw, 2rem);
   border-radius: 12px;
-  width: 320px;
+  width: min(320px, 100%);
 }
 .login-card h1 { margin: 0; }
 .login-card label { display: block; margin: 1rem 0 0.25rem; color: var(--muted); font-size: 0.9rem; }
@@ -327,3 +534,44 @@ section { margin-top: 2rem; }
   cursor: pointer;
 }
 .error { color: var(--alert); margin-top: 1rem; }
+
+/* ---------------------------------------------------------------------------
+   Responsive. Everything above is fluid (clamp/flex-wrap/percentages); these
+   breakpoints only drop table columns that stop being scannable once narrow,
+   and relax each table's min-width to match so nothing has to scroll. All of
+   it stays on the per-host page, which is a two-column table at any width.
+   --------------------------------------------------------------------------- */
+
+/* Tablets and small laptops: the agent table's widest columns go. */
+@media (max-width: 900px) {
+  .agents { min-width: 560px; }
+  .col-load, .col-seen { display: none; }
+}
+
+/* Phones / narrow splits. */
+@media (max-width: 760px) {
+  .agents { min-width: 0; }
+  /* Icon-only Glance button — the label costs more width than it earns. */
+  .glance-btn span { display: none; }
+  .glance-btn { padding: 0.25rem 0.4rem; }
+
+  /* Let the dense tables wrap in place instead of scrolling sideways. */
+  .checks, .alert-groups { min-width: 0; }
+  th, td { padding: 0.5rem 0.5rem; }
+
+  /* The dashboard's group filter takes its own line, full width. */
+  .page-head-row { align-items: stretch; }
+  .group-filter { width: 100%; }
+  .group-filter select { flex: 1 1 auto; }
+
+  .metrics th { width: auto; min-width: 96px; }
+  .rule-row { gap: 0.5rem; }
+  .field, .field.grow { max-width: none; }
+}
+
+/* Very narrow: CPU and Memory drop too, leaving status, host and alert count. */
+@media (max-width: 460px) {
+  .col-cpu, .col-mem { display: none; }
+  .topbar { padding: 0.5rem 0.75rem; }
+  .badge { font-size: 0.7rem; padding: 0.1rem 0.4rem; }
+}
