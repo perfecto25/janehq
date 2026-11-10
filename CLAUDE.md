@@ -26,7 +26,7 @@ Two listeners in one process:
 ### Env config (`src/config.cr`)
 `JANEHQ_ADMIN_PASSWORD` (**required**), `JANEHQ_ADMIN_USER` (default `admin`),
 `JANEHQ_PORT` (80), `JANEHQ_INGEST_PORT` (25900), `JANEHQ_DB_PATH` (`./janehq.db`),
-`JANEHQ_SESSION_SECRET` (random if unset), `JANEHQ_STALE_AFTER` (30s).
+`JANEHQ_SESSION_SECRET` (random if unset), `JANEHQ_STALE_AFTER` (30s), `JANEHQ_BASE_URL` (optional; public console URL, enables host links in Slack alerts).
 
 ### Point a Jane agent here
 In the agent's `config.toml`:
@@ -105,8 +105,12 @@ means "any"**. `alert_group_targets` is what the rule watches: `kind` is `host`
 because the form picks from a single list; forms post them as `host:web-01` /
 `group:3` tokens (`AlertTarget.parse`). The Service choices are the distinct
 `checks.name` values agents have reported; `AlertRules.event_for` maps such a name
-("Process nginx") to its event family ("process"). **Delivery is not implemented** —
-`alert_type`/`alert_target` are stored and displayed only.
+("Process nginx") to its event family ("process"). **Delivery: only Slack is implemented**
+(`src/alerts/notifier.cr` fiber, ticks every 10s; `exec`/`email` are stored only). Slack
+alerts (failing checks + offline hosts) are pooled into one Block Kit message per webhook
+URL (`alert_target`), posted at most once per 60s per URL; `alert_state` table tracks what
+a rule already sent (once = once per failure episode, recurring = every
+`alert_frequency_minutes`), pruned on recovery. Failed posts retry after the 60s gap.
 
 `host_groups` + `host_group_members` hold user-defined groups. Membership is keyed by
 **hostname** (the agent's only wire identifier), so a host can be grouped before it ever

@@ -11,9 +11,12 @@ module JaneHQ
     # An agent is considered stale/offline if we haven't heard from it in
     # this many seconds (~3 agent cycles at the default 10s heartbeat).
     getter stale_after : Int32
+    # Public URL of the console (e.g. https://janehq.example.com), used to build
+    # links in Slack alerts. Nil = no links.
+    getter base_url : String?
 
     def initialize(@admin_user, @admin_password, @web_port, @ingest_port,
-                   @db_path, @session_secret, @stale_after)
+                   @db_path, @session_secret, @stale_after, @base_url : String? = nil)
     end
 
     def self.from_env : Config
@@ -30,6 +33,7 @@ module JaneHQ
         db_path: ENV["JANEHQ_DB_PATH"]? || "./janehq.db",
         session_secret: ENV["JANEHQ_SESSION_SECRET"]? || Random::Secure.hex(32),
         stale_after: (ENV["JANEHQ_STALE_AFTER"]? || "30").to_i,
+        base_url: ENV["JANEHQ_BASE_URL"]?.try(&.strip.rstrip('/')).presence,
       )
     end
   end

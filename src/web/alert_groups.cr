@@ -70,6 +70,9 @@ module JaneHQ
         if type.value == "email" && !@alert_target.includes?('@')
           return "#{@alert_target.inspect} does not look like an email address."
         end
+        if type.value == "slack" && !AlertRules.webhook_url?(@alert_target)
+          return "Slack webhook URL is not valid — it should look like https://hooks.slack.com/services/..."
+        end
         return "Choose how many alerts to send." if AlertRules.alert_count?(@alert_count).nil?
         nil
       end

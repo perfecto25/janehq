@@ -327,12 +327,12 @@ module JaneHQ
       columns = [] of String
       @db.query "PRAGMA table_info(alert_groups)" do |rs|
         rs.each do
-          rs.read(Int64)                        # cid
-          columns << rs.read(String)             # name
-          rs.read(String)                        # type
-          rs.read(Int64)                         # notnull
-          rs.read(String?)                       # dflt_value
-          rs.read(Int64)                         # pk
+          rs.read(Int64)             # cid
+          columns << rs.read(String) # name
+          rs.read(String)            # type
+          rs.read(Int64)             # notnull
+          rs.read(String?)           # dflt_value
+          rs.read(Int64)             # pk
         end
       end
       @db.exec "ALTER TABLE alert_groups ADD COLUMN alert_count TEXT NOT NULL DEFAULT 'once'" unless columns.includes?("alert_count")
@@ -349,6 +349,32 @@ module JaneHQ
           PRIMARY KEY (alert_group_id, kind, ref)
         )
         SQL
+
+      # Which alerts a rule has already delivered, so a failing check is not
+      # re-sent on every tick (or after a restart). Rows exist only while the
+      # alert is active; the notifier prunes them when it recovers.
+      @db.exec <<-SQL
+        CREATE TABLE IF NOT EXISTS alert_state (
+          alert_group_id INTEGER NOT NULL,
+          hostname       TEXT NOT NULL,
+          check_name     TEXT NOT NULL,
+          last_sent_at   INTEGER NOT NULL,
+          last_active_at INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY (alert_group_id, hostname, check_name)
+        )
+        SQL
+      state_cols = [] of String
+      @db.query "PRAGMA table_info(alert_state)" do |rs|
+        rs.each do
+          rs.read(Int64)
+          state_cols << rs.read(String)
+          rs.read(String)
+          rs.read(Int64)
+          rs.read(String?)
+          rs.read(Int64)
+        end
+      end
+      @db.exec "ALTER TABLE alert_state ADD COLUMN last_active_at INTEGER NOT NULL DEFAULT 0" unless state_cols.includes?("last_active_at")
     end
 
     # Store one agent report: upsert the agent row (refreshing metrics and the
@@ -581,7 +607,56 @@ module JaneHQ
       @db.transaction do |tx|
         cnn = tx.connection
         cnn.exec "DELETE FROM alert_group_targets WHERE alert_group_id = ?", id
+        cnn.exec "DELETE FROM alert_state WHERE alert_group_id = ?", id
         cnn.exec "DELETE FROM alert_groups WHERE id = ?", id
+      end
+    end
+
+    # --- Alert delivery state ----------------------------------------------
+
+    # What a rule has delivered for one {hostname, check_name}: when it last
+    # sent it, and when the alert was last seen failing (so a flapping check
+    # can be told apart from a genuinely recovered one).
+    record AlertState, last_sent_at : Int64, last_active_at : Int64
+
+    def alert_states(alert_group_id : Int64) : Hash({String, String}, AlertState)
+      states = {} of {String, String} => AlertState
+      @db.query "SELECT hostname, check_name, last_sent_at, last_active_at FROM alert_state WHERE alert_group_id = ?",
+        alert_group_id do |rs|
+        rs.each do
+          states[{rs.read(String), rs.read(String)}] = AlertState.new(rs.read(Int64), rs.read(Int64))
+        end
+      end
+      states
+    end
+
+    def mark_alert_sent(alert_group_id : Int64, hostname : String, check_name : String, now : Int64)
+      @db.exec "INSERT INTO alert_state (alert_group_id, hostname, check_name, last_sent_at, last_active_at) " \
+               "VALUES (?,?,?,?,?) " \
+               "ON CONFLICT(alert_group_id, hostname, check_name) DO UPDATE SET " \
+               "last_sent_at = excluded.last_sent_at, last_active_at = excluded.last_active_at",
+        alert_group_id, hostname, check_name, now, now
+    end
+
+    def touch_alert_active(alert_group_id : Int64, hostname : String, check_name : String, now : Int64)
+      @db.exec "UPDATE alert_state SET last_active_at = ? WHERE alert_group_id = ? AND hostname = ? AND check_name = ?",
+        now, alert_group_id, hostname, check_name
+    end
+
+    def clear_alert_state(alert_group_id : Int64, hostname : String, check_name : String)
+      @db.exec "DELETE FROM alert_state WHERE alert_group_id = ? AND hostname = ? AND check_name = ?",
+        alert_group_id, hostname, check_name
+    end
+
+    # Hostnames a target covers. The default group means every agent; a host
+    # target is the hostname itself (it may not have reported yet).
+    def target_hostnames(target : AlertTarget) : Array(String)
+      if target.group?
+        group = group_by_id(target.ref.to_i64? || 0_i64)
+        return [] of String if group.nil?
+        group.default ? all_agents.map(&.hostname) : group_hostnames(group.id)
+      else
+        [target.ref]
       end
     end
 

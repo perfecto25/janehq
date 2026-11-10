@@ -5,7 +5,7 @@
 
 <p><a class="btn" href="/alert-groups/new">+ New Alert Group</a></p>
 
-<p class="notice">Delivery is not wired up yet — rules are saved and shown here, but nothing is sent.</p>
+<p class="notice">Slack alerts are delivered (pooled per webhook, at most one message a minute). Email and Execute are saved but not sent yet.</p>
 
 <% if alert_groups.empty? %>
   <p class="muted">No alert groups yet.</p>
@@ -46,6 +46,7 @@
           <td class="small">
             <div><%= HTML.escape(g.alert_type_label) %></div>
             <div class="muted mono"><%= HTML.escape(g.alert_target) %></div>
+            <% if g.alert_type == "slack" && !JaneHQ::AlertRules.webhook_url?(g.alert_target) %><div class="small" style="color:#ff6b6b">Invalid webhook URL — nothing will be sent. Edit this rule.</div><% end %>
             <br>
             Alert Frequency
             <div class="muted">

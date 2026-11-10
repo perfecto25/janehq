@@ -10,15 +10,23 @@
       <span class="badge badge-ok">ok</span>
     <% end %>
   </h1>
-  <p class="subtitle"><%= HTML.escape(agent.os) %> — last seen <%= (now - agent.last_seen) %>s ago (Jane <%= HTML.escape(agent.jane_version) %>)</p>
+  <p class="subtitle"><%= HTML.escape(agent.os) %> — last seen <%= JaneHQ.ago(now - agent.last_seen) %> ago (Jane <%= HTML.escape(agent.jane_version) %>)</p>
 </div>
 
 <section>
   <h2>Checks</h2>
   <div class="table-scroll">
-  <table class="checks">
+  <table class="checks" id="checks-table">
     <thead>
-      <tr><th>Status</th><th>Check</th><th>Current</th><th>Threshold</th><th>Message</th></tr>
+      <tr>
+        <% %w(Status Check Tag Current Threshold Message).each do |h| %>
+          <% if %w(Status Check Tag).includes?(h) %>
+            <th><button type="button" class="group-th" data-col="<%= h %>" title="Group by <%= h.downcase %>"><%= h %> <span class="grp" aria-hidden="true">&#9776;</span></button></th>
+          <% else %>
+            <th data-col="<%= h %>"><%= h %></th>
+          <% end %>
+        <% end %>
+      </tr>
     </thead>
     <tbody>
       <% checks.each do |c| %>
@@ -31,6 +39,7 @@
             <% end %>
           </td>
           <td><%= HTML.escape(c.name) %></td>
+          <td><%= HTML.escape((Array(String).from_json(c.tags) rescue [] of String).join(", ")) %></td>
           <td class="num"><%= HTML.escape(c.current) %></td>
           <td class="num"><%= HTML.escape(c.threshold) %></td>
           <td><%= HTML.escape(c.message) %></td>
@@ -57,3 +66,5 @@
   </table>
   </div>
 </section>
+
+<script src="/checks.js?v=<%= JaneHQ::ASSET_VERSION %>"></script>

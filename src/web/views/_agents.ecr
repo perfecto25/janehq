@@ -48,7 +48,7 @@
           <td class="num col-cpu"><%= HTML.escape(a.cpu_usage) %></td>
           <td class="num col-mem"><%= HTML.escape(a.memory_usage) %></td>
           <td class="num col-load"><%= HTML.escape(a.load_avg) %></td>
-          <td class="muted small col-seen"><%= (now - a.last_seen) %>s ago</td>
+          <td class="muted small col-seen"><%= JaneHQ.ago(now - a.last_seen) %> ago</td>
           <td class="glance-col">
             <button type="button" class="glance-btn"
                     aria-label="Glance at <%= HTML.escape(a.hostname) %>"

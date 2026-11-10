@@ -1,3 +1,5 @@
+require "uri"
+
 module JaneHQ
   # One thing an alert group watches: a single host, or a whole host group.
   # Forms post these as `host:web-01` / `group:3` tokens (a host group is
@@ -180,6 +182,16 @@ module JaneHQ
     # each service in the form's Service picker.
     def self.event_label_for(check_name : String) : String?
       event_for(check_name).try { |v| event_label(v) }
+    end
+
+    # A usable webhook: an absolute https URL with a host. Checked on save and
+    # again before delivery (rules saved by older versions may hold junk).
+    def self.webhook_url?(value : String) : Bool
+      return false if value.includes?(' ') || value.includes?('\n')
+      uri = URI.parse(value)
+      uri.scheme == "https" && !uri.host.to_s.blank? && uri.host.to_s.includes?('.')
+    rescue URI::Error
+      false
     end
 
     def self.alert_type?(value : String) : AlertType?

@@ -1,18 +1,20 @@
 # janehq
 
-TODO: Write a description here
+The JaneHQ master repo
 
 ## Installation
 
-TODO: Write installation instructions here
+
 
 ## Usage
 
-TODO: Write usage instructions here
+
 
 ## Development
-
-TODO: Write development instructions here
+    
+    
+    shards install
+    sudo dnf install sqlite-devel
 
 ## Contributing
 

@@ -2,7 +2,7 @@
 <div class="glance-head">
   <div>
     <h2><%= HTML.escape(agent.hostname) %></h2>
-    <p class="muted small"><%= HTML.escape(agent.os) %> — last seen <%= (now - agent.last_seen) %>s ago</p>
+    <p class="muted small"><%= HTML.escape(agent.os) %> — last seen <%= JaneHQ.ago(now - agent.last_seen) %> ago</p>
   </div>
   <% if stale %>
     <span class="badge badge-stale">offline</span>

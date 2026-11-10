@@ -1,7 +1,9 @@
 require "log"
 require "./config"
 require "./storage"
+require "./ago"
 require "./ingest/tcp_server"
+require "./alerts/notifier"
 require "./web/server"
 
 # JaneHQ — admin console + alerting server for the Jane monitoring agent.
@@ -10,7 +12,9 @@ require "./web/server"
 #   * the msgpack ingest server (default :25900) for agent reports, and
 #   * the Kemal web console (default :80) with an admin login + dashboard.
 module JaneHQ
-  VERSION = "0.1.0"
+  {% begin %}
+  VERSION = {{ `shards version "#{__DIR__}"`.chomp.stringify.downcase }}
+  {% end %}
 
   # Cache-busting token appended to /public asset URLs. Kemal's
   # StaticFileHandler only sends ETag/Last-Modified, so browsers happily serve
@@ -32,6 +36,9 @@ module JaneHQ
 
     ingest = IngestServer.new(storage, port: config.ingest_port)
     spawn ingest.listen
+
+    notifier = Notifier.new(storage, config.stale_after, base_url: config.base_url)
+    spawn notifier.run
 
     Web.configure(config, storage)
 

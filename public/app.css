@@ -575,3 +575,11 @@ section { margin-top: 2rem; }
   .topbar { padding: 0.5rem 0.75rem; }
   .badge { font-size: 0.7rem; padding: 0.1rem 0.4rem; }
 }
+
+/* Host page: click a header to group the checks table by that column. */
+.checks thead th { white-space: nowrap; vertical-align: middle; }
+.group-th { white-space: nowrap; background: none; border: 0; padding: 0; font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; cursor: pointer; }
+.group-th .grp { opacity: 0.35; font-size: 0.75em; }
+.group-th:hover .grp, .group-th.active .grp { opacity: 1; }
+.group-th.active { color: var(--text, #fff); }
+.group-row td { background: rgba(255,255,255,0.05); font-weight: 600; font-size: 0.85rem; padding-top: 0.5rem; padding-bottom: 0.5rem; }

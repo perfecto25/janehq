@@ -304,3 +304,200 @@ def with_storage(&)
     File.delete("#{path}-shm") if File.exists?("#{path}-shm")
   end
 end
+
+require "../src/ago"
+
+describe "JaneHQ.ago" do
+  it "scales units" do
+    JaneHQ.ago(8).should eq "8s"
+    JaneHQ.ago(60).should eq "60s"
+    JaneHQ.ago(200).should eq "3 min"
+    JaneHQ.ago(40 * 60).should eq "40 min"
+    JaneHQ.ago(3 * 3600 + 120).should eq "3 hours 2 min"
+    JaneHQ.ago(2 * 86400 + 12 * 3600 + 30 * 60).should eq "2 days 12 hours 30 min"
+  end
+end
+
+require "../src/alerts/notifier"
+
+def alert_report(host : String, fs_status : String = "alert")
+  JaneHQ::Processor.decode(wire_bytes(sample_report_json(host, fs_status)))
+end
+
+def make_slack_rule(storage, targets, url, count = "once", freq = 5, services = [] of String)
+  storage.create_alert_group("slack rule", targets, services, ["failed"], [] of String,
+    "slack", url, count, freq)
+end
+
+# Slack notifier: one pooled message per webhook, at most one per minute.
+describe JaneHQ::Notifier do
+  url = "https://hooks.slack.com/services/T/B/X"
+
+  it "pools alerts from several hosts into a single message" do
+    with_storage do |storage|
+      storage.persist(alert_report("web-01"))
+      storage.persist(alert_report("db-01"))
+      make_slack_rule(storage, [JaneHQ::AlertTarget.host("web-01"), JaneHQ::AlertTarget.host("db-01")], url)
+
+      bodies = [] of String
+      n = JaneHQ::Notifier.new(storage, 30, ->(_u : String, b : String) { bodies << b; true })
+      n.tick(Time.utc.to_unix)
+
+      bodies.size.should eq 1
+      bodies[0].should contain "2 alerts on 2 hosts"
+      bodies[0].should contain "web-01"
+      bodies[0].should contain "db-01"
+    end
+  end
+
+  it "does not re-send a 'once' alert, and alerts again after recovery" do
+    with_storage do |storage|
+      storage.persist(alert_report("web-01"))
+      make_slack_rule(storage, [JaneHQ::AlertTarget.host("web-01")], url)
+
+      count = 0
+      n = JaneHQ::Notifier.new(storage, 100_000, ->(_u : String, _b : String) { count += 1; true })
+      now = Time.utc.to_unix
+      n.tick(now)
+      n.tick(now + 120)
+      count.should eq 1
+
+      storage.persist(alert_report("web-01", "ok"), now + 130)
+      n.tick(now + 140) # recovered, but inside the 5 min grace: still remembered
+      storage.persist(alert_report("web-01"), now + 200)
+      n.tick(now + 210) # quick relapse = same episode, no new alert
+      count.should eq 1
+      storage.persist(alert_report("web-01", "ok"), now + 220)
+      n.tick(now + 230)
+      n.tick(now + 600) # clear for > 5 min -> forgotten
+      storage.persist(alert_report("web-01"), now + 610)
+      n.tick(now + 620)
+      count.should eq 2
+    end
+  end
+
+  it "sends to a webhook at most once per minute, queueing alerts until the gap passes" do
+    with_storage do |storage|
+      storage.persist(alert_report("web-01"))
+      make_slack_rule(storage, [JaneHQ::AlertTarget.host("web-01"), JaneHQ::AlertTarget.host("db-01")], url)
+
+      bodies = [] of String
+      n = JaneHQ::Notifier.new(storage, 100_000, ->(_u : String, b : String) { bodies << b; true })
+      now = Time.utc.to_unix
+      n.tick(now)
+      storage.persist(alert_report("db-01"), now + 5)
+      n.tick(now + 10) # db-01 is due, but inside the 60s gap
+      bodies.size.should eq 1
+      n.tick(now + 60)
+      bodies.size.should eq 2
+      bodies[1].should contain "db-01"
+      bodies[1].should_not contain "web-01"
+    end
+  end
+
+  it "re-sends a recurring alert after its frequency and retries a failed post" do
+    with_storage do |storage|
+      storage.persist(alert_report("web-01"))
+      make_slack_rule(storage, [JaneHQ::AlertTarget.host("web-01")], url, "recurring", 3)
+
+      results = [false, true, true]
+      calls = 0
+      n = JaneHQ::Notifier.new(storage, 100_000, ->(_u : String, _b : String) { calls += 1; results.shift })
+      now = Time.utc.to_unix
+      n.tick(now)      # post fails
+      n.tick(now + 30) # inside gap
+      calls.should eq 1
+      n.tick(now + 60) # retry succeeds
+      calls.should eq 2
+      n.tick(now + 120) # recurring 3 min not elapsed
+      calls.should eq 2
+      n.tick(now + 60 + 180)
+      calls.should eq 3
+    end
+  end
+
+  it "alerts for an offline host" do
+    with_storage do |storage|
+      now = Time.utc.to_unix
+      storage.persist(alert_report("web-01", "ok"), now - 100)
+      make_slack_rule(storage, [JaneHQ::AlertTarget.host("web-01")], url)
+
+      bodies = [] of String
+      n = JaneHQ::Notifier.new(storage, 30, ->(_u : String, b : String) { bodies << b; true })
+      n.tick(now)
+      bodies.size.should eq 1
+      bodies[0].should contain "Host offline"
+    end
+  end
+end
+
+describe JaneHQ::Slack do
+  it "escapes mrkdwn control characters and caps blocks at 50" do
+    alerts = (1..80).map { |i| JaneHQ::Alert.new("h#{i}", "Check <x>", "a & b") }
+    json = JaneHQ::Slack.payload(alerts)
+    parsed = JSON.parse(json)
+    parsed["blocks"].as_a.size.should be <= 50
+    json.should contain "&lt;x&gt;"
+    json.should contain "more hosts not shown"
+  end
+end
+
+describe "Slack host links" do
+  it "links each host to its JaneHQ page when a base URL is set" do
+    alerts = [JaneHQ::Alert.new("web 01", "CPU Usage", "hot")]
+    json = JaneHQ::Slack.payload(alerts, "https://hq.example.com")
+    json.should contain "<https://hq.example.com/agent/web%2001|*web 01*>"
+    JaneHQ::Slack.payload(alerts).should_not contain "/agent/"
+  end
+end
+
+describe "alert delivery edge cases" do
+  url = "https://hooks.slack.com/services/T/B/X"
+
+  it "does not re-alert a flapping check inside the rule's interval" do
+    with_storage do |storage|
+      now = Time.utc.to_unix
+      storage.persist(alert_report("web-01"), now)
+      make_slack_rule(storage, [JaneHQ::AlertTarget.host("web-01")], url, "recurring", 10)
+
+      count = 0
+      n = JaneHQ::Notifier.new(storage, 100_000, ->(_u : String, _b : String) { count += 1; true })
+      n.tick(now)
+      count.should eq 1
+      # fails, recovers, fails again, every minute for 9 minutes
+      (1..9).each do |m|
+        storage.persist(alert_report("web-01", m.odd? ? "ok" : "alert"), now + m * 60)
+        n.tick(now + m * 60)
+      end
+      count.should eq 1
+      storage.persist(alert_report("web-01"), now + 600)
+      n.tick(now + 600)
+      count.should eq 2
+    end
+  end
+
+  it "picks up rule edits on the next tick without a restart" do
+    with_storage do |storage|
+      now = Time.utc.to_unix
+      storage.persist(alert_report("web-01"), now)
+      id = make_slack_rule(storage, [JaneHQ::AlertTarget.host("web-01")], url, "recurring", 60)
+
+      count = 0
+      n = JaneHQ::Notifier.new(storage, 100_000, ->(_u : String, _b : String) { count += 1; true })
+      n.tick(now)
+      n.tick(now + 120)
+      count.should eq 1
+      storage.update_alert_group(id, "slack rule", [JaneHQ::AlertTarget.host("web-01")],
+        [] of String, ["failed"], [] of String, "slack", url, true, "recurring", 1)
+      n.tick(now + 130)
+      count.should eq 2
+    end
+  end
+
+  it "validates webhook URLs" do
+    JaneHQ::AlertRules.webhook_url?("https://hooks.slack.com/services/T/B/X").should be_true
+    ["sfdfdfd", "http://hooks.slack.com/x", "https://", "https://localhost/x", "https://a b.com/x", ""].each do |bad|
+      JaneHQ::AlertRules.webhook_url?(bad).should be_false
+    end
+  end
+end
