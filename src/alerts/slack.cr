@@ -35,8 +35,10 @@ module JaneHQ
       "• *#{escape(alert.check)}*#{detail}"
     end
 
-    # Alerts are grouped by host (first-seen order). Overflowing hosts are
-    # summarized in a trailing context block rather than silently dropped.
+    # One message: a header, then one block per host — the host name as a
+    # heading line with its alerts listed directly under it — with a divider
+    # between hosts so it is obvious where one host's alerts end. Overflowing
+    # hosts are summarized in a trailing context block, not silently dropped.
     def self.payload(alerts : Array(Alert), base_url : String? = nil) : String
       by_host = alerts.group_by(&.hostname)
       hosts_label = by_host.size == 1 ? "1 host" : "#{by_host.size} hosts"
@@ -46,12 +48,16 @@ module JaneHQ
       blocks = [] of Hash(String, JSON::Any)
       blocks << block("header", {"text" => {"type" => "plain_text", "text" => title}})
 
-      # Leave room for the header and a possible "+N more" footer.
+      # Reserve the header and a possible "+N more" footer; each host after the
+      # first also costs a divider.
       room = MAX_BLOCKS - 2
-      by_host.first(room).each do |host, host_alerts|
+      max_hosts = (room + 1) // 2
+      shown = by_host.first(max_hosts).to_a
+      shown.each_with_index do |(host, host_alerts), i|
+        blocks << block("divider", {} of String => String) if i > 0
         blocks << section(host, host_alerts, base_url)
       end
-      hidden = by_host.size - room
+      hidden = by_host.size - shown.size
       if hidden > 0
         blocks << block("context", {"elements" => [{"type" => "mrkdwn", "text" => "+#{hidden} more hosts not shown"}]})
       end
@@ -59,11 +65,8 @@ module JaneHQ
       {text: title, blocks: blocks}.to_json
     end
 
-    private def self.section(host : String, alerts : Array(Alert), base_url : String? = nil) : Hash(String, JSON::Any)
-      name = "*#{escape(host)}*"
-      # Slack link syntax: <url|label>. The label is already escaped.
-      name = "<#{base_url}/agent/#{URI.encode_path_segment(host)}|#{name}>" if base_url
-      head = "#{name} — #{alerts.size == 1 ? "1 alert" : "#{alerts.size} alerts"}"
+    private def self.section(host : String, alerts : Array(Alert), base_url : String?) : Hash(String, JSON::Any)
+      head = host_cell(host, base_url)
       text = String.build do |io|
         io << head
         alerts.each_with_index do |a, i|
@@ -76,6 +79,12 @@ module JaneHQ
         end
       end
       block("section", {"text" => {"type" => "mrkdwn", "text" => text}})
+    end
+
+    private def self.host_cell(host : String, base_url : String?) : String
+      name = "*#{escape(host)}*"
+      # Slack link syntax: <url|label>. The label is already escaped.
+      base_url ? "<#{base_url}/agent/#{URI.encode_path_segment(host)}|#{name}>" : name
     end
 
     private def self.block(type : String, fields) : Hash(String, JSON::Any)

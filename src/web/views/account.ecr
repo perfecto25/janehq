@@ -1,0 +1,20 @@
+<div class="page-head">
+  <h1>Your account</h1>
+  <p class="subtitle">Signed in as <strong><%= HTML.escape(env.session.string?("user") || "") %></strong> — <%= JaneHQ::Role.label(JaneHQ::Web.role(env) || "") %>.</p>
+</div>
+<% if ok %><p class="notice">Password changed.</p><% end %>
+<% if error %><p class="error"><%= HTML.escape(error) %></p><% end %>
+<% if me.google? %>
+<p class="notice">You sign in with Google, so there is no JaneHQ password to change.</p>
+<% else %>
+<form method="post" action="/account/password" class="stack-form">
+  <h2>Change password</h2>
+  <label class="field"><span>Current password</span>
+    <input type="password" name="current" autocomplete="current-password" required></label>
+  <label class="field"><span>New password (<%= JaneHQ::Passwords::MIN_LENGTH %>–<%= JaneHQ::Passwords::MAX_LENGTH %> characters)</span>
+    <input type="password" name="password" autocomplete="new-password" minlength="<%= JaneHQ::Passwords::MIN_LENGTH %>" required></label>
+  <label class="field"><span>Confirm new password</span>
+    <input type="password" name="confirm" autocomplete="new-password" required></label>
+  <p><button type="submit" class="btn btn-primary">Change password</button></p>
+</form>
+<% end %>

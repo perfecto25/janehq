@@ -1,13 +1,15 @@
 // Group the Host page's checks table by any column. Click a header to group
 // by it; click again to ungroup. Plain client-side reordering of existing rows.
 (function () {
+  var remembered = null; // grouping survives live refreshes (agent-live.js re-inits)
+  function init() {
   var table = document.getElementById("checks-table");
   if (!table) return;
   var body = table.tBodies[0];
   var rows = Array.prototype.slice.call(body.rows);
   var buttons = table.querySelectorAll(".group-th");
   var cols = table.querySelectorAll("thead th");
-  var active = null;
+  var active = remembered;
 
   function render() {
     Array.prototype.slice.call(body.querySelectorAll(".group-row")).forEach(function (r) { r.remove(); });
@@ -40,7 +42,12 @@
   buttons.forEach(function (b) {
     b.addEventListener("click", function () {
       active = active === b.dataset.col ? null : b.dataset.col;
+      remembered = active;
       render();
     });
   });
+  render();
+  }
+  window.JaneChecksInit = init;
+  init();
 })();

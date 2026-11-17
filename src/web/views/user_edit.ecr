@@ -1,0 +1,20 @@
+<div class="page-head">
+  <p><a href="/users">&larr; Users</a></p>
+  <h1>Edit <%= HTML.escape(user.username) %></h1>
+</div>
+<% if error %><p class="error"><%= HTML.escape(error) %></p><% end %>
+<form method="post" action="/users/<%= user.id %>/update" class="stack-form">
+  <label class="field"><span>Role</span>
+    <select name="role">
+      <% JaneHQ::Role::ALL.each do |r| %>
+        <option value="<%= r %>"<%= r == user.role ? " selected" : "" %>><%= JaneHQ::Role.label(r) %> — <%= HTML.escape(JaneHQ::Role.describe(r)) %></option>
+      <% end %>
+    </select></label>
+  <% if user.google? %>
+    <p class="muted">Signs in with Google — no local password.</p>
+  <% else %>
+  <label class="field"><span>New password (leave blank to keep)</span>
+    <input type="password" name="password" autocomplete="new-password"></label>
+  <% end %>
+  <p><button type="submit" class="btn btn-primary">Save</button></p>
+</form>

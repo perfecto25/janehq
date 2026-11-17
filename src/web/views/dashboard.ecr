@@ -5,6 +5,8 @@
       <%= HTML.escape(group.name) %> — ordered by alert severity. Auto-refreshes every 3s.
     </p>
   </div>
+  <input type="search" id="host-search" class="host-search" placeholder="Search host"
+         aria-label="Search host" autocomplete="off" spellcheck="false">
   <form class="group-filter" method="get" action="/">
     <label for="group-select">Host Groups</label>
     <select id="group-select" name="group">
@@ -33,4 +35,16 @@
     <div id="glance-body"><p class="muted">Loading…</p></div>
   </div>
 </div>
+<script src="/search.js?v=<%= JaneHQ::ASSET_VERSION %>"></script>
+<script src="/sort.js?v=<%= JaneHQ::ASSET_VERSION %>"></script>
+<!-- Ack duration menu: one shared element outside #agents (so the table's
+     overflow can't clip it and the 3s swap can't tear it down); ack.js fills
+     in and positions it next to the clicked Ack button. -->
+<div id="ack-menu" role="menu" hidden>
+  <button type="button" role="menuitem" data-minutes="60">1 hour</button>
+  <button type="button" role="menuitem" data-minutes="240">4 hours</button>
+  <button type="button" role="menuitem" data-minutes="1440">1 day</button>
+  <button type="button" role="menuitem" data-minutes="10080">7 days</button>
+</div>
+<script src="/ack.js?v=<%= JaneHQ::ASSET_VERSION %>"></script>
 <script src="/glance.js?v=<%= JaneHQ::ASSET_VERSION %>"></script>

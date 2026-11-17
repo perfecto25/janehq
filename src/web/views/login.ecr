@@ -1,6 +1,11 @@
 
 <div class="login-brand"><%= JaneHQ::LOGO_SVG %></div>
 <br>
+<% unless temp_users.empty? %>
+  <p class="notice">First start: a temporary password for <strong><%= HTML.escape(temp_users.join(", ")) %></strong>
+    was written to the JaneHQ server's standard output (its console, or the service log — e.g.
+    <code>journalctl -u janehq</code>). Sign in with it, then change it under your account.</p>
+<% end %>
 <% if error %>
   <p class="error"><%= HTML.escape(error.not_nil!) %></p>
 <% end %>
@@ -13,3 +18,7 @@
   </label>
   <button type="submit">Sign in</button>
 </form>
+<% if google %>
+  <p class="login-or">or</p>
+  <a class="google-btn" href="/auth/google">Sign in with Google</a>
+<% end %>

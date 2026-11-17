@@ -3,7 +3,10 @@
   <p class="subtitle">Group agents into environments such as Prod and UAT, then filter the dashboard by group.</p>
 </div>
 
-<p><a class="btn" href="/host-groups/new">+ New Group</a></p>
+<% can_write = JaneHQ::Web.can_write?(env) %>
+<% if can_write %>
+  <p><a class="btn" href="/host-groups/new">+ New Group</a></p>
+<% end %>
 
 <div class="table-scroll">
 <table class="groups">
@@ -25,7 +28,7 @@
           <% end %>
         </td>
         <td class="row-actions">
-          <% unless g.default %>
+          <% if can_write && !g.default %>
             <div class="actions">
               <a href="/host-groups/<%= g.id %>/edit" class="btn btn-small btn-edit">Edit</a>
               <form method="post" action="/host-groups/<%= g.id %>/delete"

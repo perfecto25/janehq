@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="<%= JaneHQ::Web.theme(env) %>">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -15,18 +15,41 @@
     <%# topbar's colour; aria-label names the link, as there is no link text. %>
     <a class="brand" href="/" aria-label="JaneHQ"><%= JaneHQ::LOGO_SVG %></a>
     <nav class="topnav">
+      <a href="/metrics" class="nav-link<%= path.starts_with?("/metrics") ? " active" : "" %>">Metrics</a>
       <details class="menu">
         <summary>Admin</summary>
         <ul class="menu-items">
           <li><a href="/" class="<%= path == "/" || path.starts_with?("/agent/") ? "active" : "" %>">Hosts</a></li>
           <li><a href="/host-groups" class="<%= path == "/host-groups" ? "active" : "" %>">Host Groups</a></li>
-          <li><a href="/users" class="<%= path == "/users" ? "active" : "" %>">Users</a></li>
+          <% if JaneHQ::Web.superuser?(env) %>
+            <li><a href="/users" class="<%= path.starts_with?("/users") ? "active" : "" %>">Users</a></li>
+          <% end %>
           <li><a href="/alert-groups" class="<%= path.starts_with?("/alert-groups") ? "active" : "" %>">Alerts</a></li>
         </ul>
       </details>
-      <form class="logout" method="post" action="/logout">
-        <button type="submit">Log out</button>
-      </form>
+      <details class="menu user-menu">
+        <summary title="<%= HTML.escape(JaneHQ::Role.label(JaneHQ::Web.role(env) || "")) %>"><%= HTML.escape(env.session.string?("user") || "") %></summary>
+        <ul class="menu-items">
+          <li><a href="/account" class="<%= path.starts_with?("/account") ? "active" : "" %>">Change password</a></li>
+          <li><hr></li>
+          <li class="menu-label">Theme</li>
+          <% JaneHQ::THEMES.each do |(key, label, blurb)| %>
+            <li>
+              <form class="theme-form" method="post" action="/account/theme">
+                <input type="hidden" name="theme" value="<%= key %>">
+                <input type="hidden" name="back" value="<%= env.request.method == "GET" ? HTML.escape(env.request.resource) : "/" %>">
+                <button type="submit" class="<%= JaneHQ::Web.theme(env) == key ? "current" : "" %>"><span><%= JaneHQ::Web.theme(env) == key ? "✓ " : "" %><%= label %></span> <small><%= blurb %></small></button>
+              </form>
+            </li>
+          <% end %>
+          <li><hr></li>
+          <li>
+            <form class="logout" method="post" action="/logout">
+              <button type="submit">Logout</button>
+            </form>
+          </li>
+        </ul>
+      </details>
     </nav>
   </header>
   <main class="container">

@@ -1,3 +1,4 @@
+<div id="agent-live" data-host="<%= HTML.escape(agent.hostname) %>" data-seen="<%= agent.last_seen %>">
 <% stale = agent.stale?(stale_after, now) %>
 <div class="page-head">
   <p><a href="/">&larr; All servers</a></p>
@@ -67,4 +68,8 @@
   </div>
 </section>
 
+</div>
+<% unless partial %>
 <script src="/checks.js?v=<%= JaneHQ::ASSET_VERSION %>"></script>
+<script src="/agent-live.js?v=<%= JaneHQ::ASSET_VERSION %>"></script>
+<% end %>

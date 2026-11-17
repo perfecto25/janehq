@@ -26,7 +26,9 @@ module JaneHQ
       bytes = client.getb_to_end
       return if bytes.empty?
 
+      Log.debug { "received #{bytes.size} bytes from #{client.remote_address rescue "unknown"}" }
       payload = Processor.process(bytes, @storage)
+      Log.debug { "ingested report from #{payload.metrics.hostname}:\n#{payload.to_pretty_json}" }
       Log.info { "report from #{payload.metrics.hostname}: #{payload.checks.size} checks, #{payload.alert_count} alert(s)" }
     rescue ex
       Log.error(exception: ex) { "failed to process agent message" }

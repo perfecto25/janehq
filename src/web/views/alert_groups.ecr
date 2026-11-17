@@ -3,7 +3,10 @@
   <p class="subtitle">An alert group is one rule: the hosts and host groups it watches, which check results qualify, and how the alert is delivered.</p>
 </div>
 
-<p><a class="btn" href="/alert-groups/new">+ New Alert Group</a></p>
+<% can_write = JaneHQ::Web.can_write?(env) %>
+<% if can_write %>
+  <p><a class="btn" href="/alert-groups/new">+ New Alert Group</a></p>
+<% end %>
 
 <p class="notice">Slack alerts are delivered (pooled per webhook, at most one message a minute). Email and Execute are saved but not sent yet.</p>
 
@@ -25,7 +28,7 @@
       <% alert_groups.each do |g| %>
         <tr class="<%= g.enabled ? "" : "row-off" %>">
           <td>
-            <a href="/alert-groups/<%= g.id %>/edit"><%= HTML.escape(g.name) %></a>
+            <% if can_write %><a href="/alert-groups/<%= g.id %>/edit"><%= HTML.escape(g.name) %></a><% else %><%= HTML.escape(g.name) %><% end %>
             <% unless g.enabled %><span class="badge badge-stale">off</span><% end %>
           </td>
           <td>
@@ -57,6 +60,7 @@
             </div>
           </td>
           <td class="row-actions">
+            <% if can_write %>
             <div class="actions">
               <form method="post" action="/alert-groups/<%= g.id %>/toggle">
                 <button type="submit" class="btn btn-small btn-disable"><%= g.enabled ? "Disable" : "Enable" %></button>
@@ -67,6 +71,7 @@
                 <button type="submit" class="btn btn-small btn-danger">Delete</button>
               </form>
             </div>
+            <% end %>
           </td>
         </tr>
       <% end %>

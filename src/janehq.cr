@@ -1,5 +1,6 @@
 require "log"
 require "./config"
+require "./bootstrap"
 require "./storage"
 require "./ago"
 require "./ingest/tcp_server"
@@ -29,20 +30,53 @@ module JaneHQ
   LOGO_SVG = {{ read_file("#{__DIR__}/../public/logo.svg") }}.sub(/\A.*?<svg/m, "<svg")
 
   def self.run
-    Log.setup_from_env(default_level: :info)
-
     config = Config.from_env
+    # Debug applies to JaneHQ's own sources only: the db driver's debug log would
+    # dump every query with its arguments (e.g. password hashes).
+    Log.setup do |c|
+      backend = ::Log::IOBackend.new
+      c.bind "*", ::Log::Severity::Info, backend
+      if config.debug?
+        {"janehq", "web", "ingest"}.each { |src| c.bind "#{src}.*", ::Log::Severity::Debug, backend }
+        c.bind "janehq", ::Log::Severity::Debug, backend
+        c.bind "web", ::Log::Severity::Debug, backend
+        c.bind "ingest", ::Log::Severity::Debug, backend
+      end
+    end
+    if Config.parse_debug_level(ENV["JANEHQ_DEBUG_LEVEL"]?).nil?
+      Log.for("janehq").warn { "JANEHQ_DEBUG_LEVEL must be `info` or `debug`; using info" }
+    end
+    Log.for("janehq").debug { "debug logging on: web requests and ingested reports are logged in detail" }
+    if Config.parse_retention(ENV["JANEHQ_METRICS_RETENTION"]?).nil?
+      Log.for("janehq").warn { "JANEHQ_METRICS_RETENTION must be a positive number of days; using #{Config::DEFAULT_METRICS_RETENTION_DAYS}" }
+    end
     storage = Storage.new(config.db_path)
+    bootstrap_users(config, storage)
+    if config.google_partial?
+      Log.for("janehq").warn { "Google sign-in is DISABLED: JANEHQ_GOOGLE_CLIENT_ID, JANEHQ_GOOGLE_CLIENT_SECRET and JANEHQ_GOOGLE_DOMAIN must all be set" }
+    end
 
     ingest = IngestServer.new(storage, port: config.ingest_port)
     spawn ingest.listen
 
-    notifier = Notifier.new(storage, config.stale_after, base_url: config.base_url)
+    notifier = Notifier.new(storage, config.stale_after, base_url: config.base_url, batch_window: Notifier::BATCH_WINDOW)
     spawn notifier.run
+
+    # Hourly rollups + minute-tier pruning of the metric time series.
+    spawn do
+      loop do
+        begin
+          storage.rollup_metrics!(retention_days: config.metrics_retention_days)
+        rescue ex
+          Log.for("janehq").error(exception: ex) { "metric rollup failed" }
+        end
+        sleep 5.minutes
+      end
+    end
 
     Web.configure(config, storage)
 
-    Log.for("janehq").info { "console on :#{config.web_port} (admin user: #{config.admin_user})" }
+    Log.for("janehq").info { "console on :#{config.web_port} (JANEHQ_UI_PORT)" }
     Kemal.config.port = config.web_port
     Kemal.run
   end

@@ -12,20 +12,20 @@
   <table class="agents">
     <thead>
       <tr>
-        <th>Status</th>
-        <th>Host</th>
+        <th class="sortable" data-sort="status" tabindex="0" aria-sort="none" title="Sort by status">Status</th>
+        <th class="sortable" data-sort="host" tabindex="0" aria-sort="none" title="Sort by host">Host</th>
         <th>Alerts</th>
         <th class="col-cpu">CPU</th>
         <th class="col-mem">Memory</th>
         <th class="col-load">Load</th>
-        <th class="col-seen">Last seen</th>
+        <th class="col-ack" aria-label="Acknowledge"></th>
         <th class="glance-col">Glance</th>
       </tr>
     </thead>
     <tbody>
       <% agents.each do |a| %>
         <% stale = a.stale?(stale_after, now) %>
-        <tr class="<%= a.alert_count > 0 ? "row-alert" : "row-ok" %><%= stale ? " row-stale" : "" %>">
+        <tr data-host="<%= HTML.escape(a.hostname.downcase) %>" data-status="<%= stale ? 1 : (a.alert_count > 0 ? 0 : 2) %>" class="<%= a.alert_count > 0 ? "row-alert" : "row-ok" %><%= stale ? " row-stale" : "" %>">
           <td>
             <% if stale %>
               <span class="badge badge-stale">offline</span>
@@ -36,7 +36,7 @@
             <% end %>
           </td>
           <td><a href="/agent/<%= HTML.escape(a.hostname) %>"><%= HTML.escape(a.hostname) %></a>
-            <div class="muted small"><%= HTML.escape(a.os) %></div>
+            <span class="muted small host-os"><%= HTML.escape(a.os) %></span>
           </td>
           <td class="num">
             <% if a.alert_count > 0 %>
@@ -48,7 +48,28 @@
           <td class="num col-cpu"><%= HTML.escape(a.cpu_usage) %></td>
           <td class="num col-mem"><%= HTML.escape(a.memory_usage) %></td>
           <td class="num col-load"><%= HTML.escape(a.load_avg) %></td>
-          <td class="muted small col-seen"><%= JaneHQ.ago(now - a.last_seen) %> ago</td>
+          <td class="col-ack">
+            <% host_acks = acks[a.hostname]? || [] of JaneHQ::Storage::AckRecord %>
+            <% alerting = stale || a.alert_count > 0 %>
+            <% covered = alerting && (stale ? host_acks.any? { |k| k.check_name == JaneHQ::Alert::OFFLINE } : host_acks.size >= a.alert_count) %>
+            <% if covered %>
+              <% latest = host_acks.max_by(&.acked_at) %>
+              <span class="ack-state">
+                <span class="ack-who" tabindex="0" role="note"
+                      data-tip="Acked by <%= HTML.escape(latest.acked_by.blank? ? "unknown" : latest.acked_by) %> at <%= Time.unix(latest.acked_at).to_utc.to_s("%Y-%m-%d %H:%M:%S UTC") %>">Acked</span> <span class="muted small"><%= JaneHQ.ago(host_acks.max_of(&.expires_at) - now) %> left</span>
+                <% if JaneHQ::Web.can_write?(env) %>
+                <button type="button" class="ack-chip ack-undo" title="Resume notifications"
+                        hx-post="/agents/<%= URI.encode_path_segment(a.hostname) %>/unack"
+                        hx-vals='{"group": "<%= group.id %>"}' hx-target="#agents" hx-swap="innerHTML">Undo</button>
+                <% end %>
+              </span>
+            <% elsif alerting && JaneHQ::Web.can_write?(env) %>
+              <button type="button" class="ack-chip ack-open" aria-haspopup="menu"
+                      data-host="<%= HTML.escape(a.hostname) %>" data-group="<%= group.id %>"
+                      data-url="/agents/<%= URI.encode_path_segment(a.hostname) %>/ack"
+                      title="Acknowledge: pause notifications for this host's current alerts for a while. They notify again if still failing afterwards; new alerts still notify.">Ack</button>
+            <% end %>
+          </td>
           <td class="glance-col">
             <button type="button" class="glance-btn"
                     aria-label="Glance at <%= HTML.escape(a.hostname) %>"
@@ -70,4 +91,5 @@
     </tbody>
   </table>
   </div>
+  <p class="muted small" id="no-match" hidden>No hosts match.</p>
 <% end %>

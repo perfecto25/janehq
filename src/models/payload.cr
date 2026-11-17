@@ -35,6 +35,40 @@ module JaneHQ
     end
   end
 
+  # One process in the agent's top-N lists. Rates are per second; the agent
+  # omits the I/O fields when it can't read them (e.g. Xorg).
+  struct ProcDetails
+    include JSON::Serializable
+
+    getter cmdline : String? = nil
+    getter uptime_seconds : Int64? = nil
+    getter user : String? = nil
+  end
+
+  struct ProcInfo
+    include JSON::Serializable
+
+    getter pid : Int64
+    getter name : String
+    getter details : ProcDetails? = nil
+    getter cpu_pct : Float64 = 0.0
+    getter rss_bytes : Int64 = 0_i64
+    getter io_read_bps : Float64? = nil
+    getter io_write_bps : Float64? = nil
+
+    def io_bps : Float64
+      (io_read_bps || 0.0) + (io_write_bps || 0.0)
+    end
+  end
+
+  struct TopProcs
+    include JSON::Serializable
+
+    getter by_memory : Array(ProcInfo) = [] of ProcInfo
+    getter by_cpu : Array(ProcInfo) = [] of ProcInfo
+    getter by_disk_io : Array(ProcInfo) = [] of ProcInfo
+  end
+
   struct Metrics
     include JSON::Serializable
 
@@ -51,5 +85,7 @@ module JaneHQ
     getter free_memory : String
     getter memory_usage : String
     getter jane_version : String
+    # Newer agents only; nil from older ones.
+    getter top_procs : TopProcs? = nil
   end
 end

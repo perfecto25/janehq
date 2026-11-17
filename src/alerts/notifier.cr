@@ -21,6 +21,11 @@ module JaneHQ
     TICK    = 10.seconds
     MIN_GAP = 60_i64
 
+    # Production wait between a webhook's first due alert and posting it, so
+    # alerts from hosts that fail moments apart (agents report independently)
+    # leave as one message instead of one each.
+    BATCH_WINDOW = 30_i64
+
     # How long an alert must stay clear before it counts as recovered.
     RECOVERY_GRACE = 300_i64
 
@@ -30,7 +35,9 @@ module JaneHQ
 
     def initialize(@storage : Storage, @stale_after : Int32,
                    @poster : Poster = ->(url : String, body : String) { Slack.post(url, body) },
-                   @base_url : String? = nil)
+                   @base_url : String? = nil, @batch_window : Int64 = 0_i64)
+      @first_due = {} of String => Int64
+      @rule_ids_by_url = {} of String => Array(Int64)
       @last_post = {} of String => Int64
       @warned = Set({Int64, String}).new
     end
@@ -48,50 +55,145 @@ module JaneHQ
 
     def tick(now : Int64 = Time.utc.to_unix)
       agents = @storage.all_agents.to_h { |a| {a.hostname, a} }
-      by_url = {} of String => Array(Due)
+      acked = reconcile_acks(agents, now)
+      rules = deliverable_rules
 
-      @storage.all_alert_groups.each do |rule|
-        next unless rule.enabled && rule.alert_type == "slack"
-        url = rule.alert_target
-        next if url.blank?
-        unless AlertRules.webhook_url?(url)
-          Log.warn { "alert group #{rule.name.inspect}: #{url.inspect} is not a valid webhook URL (needs https://...); skipping" } if @warned.add?({rule.id, url})
-          next
-        end
-
+      # 1. Which rules see which alert. A host can sit in several alert groups.
+      seen = {} of {String, String} => {Alert, Array(AlertGroupRecord)}
+      rules.each do |rule|
         hosts = @storage.alert_group_targets(rule.id)
           .flat_map { |t| @storage.target_hostnames(t) }.uniq
-        states = @storage.alert_states(rule.id)
-        active = Set({String, String}).new
-
         hosts.each do |host|
           agent = agents[host]?
           next if agent.nil?
           alerts_for(rule, agent, now).each do |alert|
-            key = {alert.hostname, alert.check}
-            active << key
-            state = states[key]?
-            @storage.touch_alert_active(rule.id, alert.hostname, alert.check, now) if state
-            recurring_due = rule.alert_count == "recurring" && state &&
-                            now - state.last_sent_at >= rule.alert_frequency_minutes.to_i64 * 60
-            (by_url[url] ||= [] of Due) << Due.new(rule.id, alert) if state.nil? || recurring_due
+            entry = (seen[{alert.hostname, alert.check}] ||= {alert, [] of AlertGroupRecord})
+            entry[1] << rule
           end
-        end
-
-        # Forget an alert only once it has stayed away for a while. Forgetting
-        # at the first recovery would let a flapping check (e.g. CPU I/O wait
-        # hovering at its limit) start a "new" alert every minute and ignore
-        # the rule's frequency. A recurring rule keeps its memory for at least
-        # its own interval.
-        grace = RECOVERY_GRACE
-        grace = {grace, rule.alert_frequency_minutes.to_i64 * 60}.max if rule.alert_count == "recurring"
-        states.each do |key, state|
-          next if active.includes?(key)
-          @storage.clear_alert_state(rule.id, key[0], key[1]) if now - state.last_active_at >= grace
         end
       end
 
-      by_url.each { |url, dues| deliver(url, dues, now) }
+      # 2. Per webhook, each alert is delivered by ONE rule: the one with the
+      #    shortest repeat interval ("once" rules count as never repeating;
+      #    ties go to the oldest rule). Two groups sharing a webhook therefore
+      #    never send the same alert twice, while groups with different
+      #    webhooks (different channels) each deliver it. What was already sent
+      #    is remembered per alert and webhook, whichever rule sent it.
+      @rule_ids_by_url = rules.group_by(&.alert_target).transform_values(&.map(&.id))
+      sent = latest_sent_states(rules)
+      owned = {} of Int64 => Array(Alert)
+      seen.each do |key, (alert, matching)|
+        @storage.touch_alert_active_everywhere(alert.hostname, alert.check, now) if sent.keys.any? { |(_, k)| k == key }
+        next if acked.includes?(key) # acknowledged: stay quiet until the ack lapses
+        matching.group_by(&.alert_target).each_value do |same_url|
+          owner = same_url.min_by { |r| {repeat_seconds(r), r.id} }
+          (owned[owner.id] ||= [] of Alert) << alert
+        end
+      end
+
+      # 3. Per owning rule: when anything is due, a recurring rule reports its
+      #    whole current picture, so hosts that began failing at different
+      #    moments share one message and one schedule from then on. A "once"
+      #    rule sends only alerts that are new.
+      by_url = {} of String => Array(Due)
+      rules.each do |rule|
+        pending = owned[rule.id]? || next
+        interval = repeat_seconds(rule)
+        due = pending.select do |a|
+          st = sent[{rule.alert_target, {a.hostname, a.check}}]?
+          st.nil? || now - st.last_sent_at >= interval
+        end
+        next if due.empty?
+        send = rule.alert_count == "recurring" ? pending : due
+        send.each { |a| (by_url[rule.alert_target] ||= [] of Due) << Due.new(rule.id, a) }
+      end
+
+      prune_states(rules, seen, now)
+
+      @first_due.reject! { |url, _| !by_url.has_key?(url) } # nothing due any more: restart the window
+      by_url.each do |url, dues|
+        since = @first_due[url] ||= now
+        deliver(url, dues, now) if now - since >= @batch_window
+      end
+    end
+
+    # Enabled Slack rules with a usable webhook (bad ones are warned about once).
+    private def deliverable_rules : Array(AlertGroupRecord)
+      @storage.all_alert_groups.select do |rule|
+        next false unless rule.enabled && rule.alert_type == "slack"
+        url = rule.alert_target
+        next false if url.blank?
+        unless AlertRules.webhook_url?(url)
+          Log.warn { "alert group #{rule.name.inspect}: #{url.inspect} is not a valid webhook URL (needs https://...); skipping" } if @warned.add?({rule.id, url})
+          next false
+        end
+        true
+      end
+    end
+
+    # Seconds between repeats; "once" never repeats.
+    private def repeat_seconds(rule : AlertGroupRecord) : Int64
+      rule.alert_count == "recurring" ? rule.alert_frequency_minutes.to_i64 * 60 : Int64::MAX
+    end
+
+    # Per {webhook, alert}, the most recent send by any rule using that webhook.
+    private def latest_sent_states(rules : Array(AlertGroupRecord))
+      url_of = rules.to_h { |r| {r.id, r.alert_target} }
+      latest = {} of {String, {String, String}} => Storage::AlertStateRow
+      @storage.all_alert_states.each do |row|
+        url = url_of[row.rule_id]? || next
+        key = {url, {row.hostname, row.check_name}}
+        cur = latest[key]?
+        latest[key] = row if cur.nil? || row.last_sent_at > cur.last_sent_at
+      end
+      latest
+    end
+
+    # Forget an alert only once it has stayed away for a while. Forgetting at
+    # the first recovery would let a flapping check (e.g. CPU I/O wait hovering
+    # at its limit) start a "new" alert every minute and ignore the rule's
+    # frequency. A recurring rule keeps its memory for at least its own interval.
+    private def prune_states(rules : Array(AlertGroupRecord), seen, now : Int64)
+      by_id = rules.to_h { |r| {r.id, r} }
+      @storage.all_alert_states.each do |row|
+        rule = by_id[row.rule_id]? || next
+        next if seen.has_key?({row.hostname, row.check_name})
+        grace = {RECOVERY_GRACE, rule.alert_count == "recurring" ? rule.alert_frequency_minutes.to_i64 * 60 : 0_i64}.max
+        @storage.clear_alert_state(row.rule_id, row.hostname, row.check_name) if now - row.last_active_at >= grace
+      end
+    end
+
+    # Housekeeping for acknowledgements; returns the {host, check} pairs that
+    # are currently muted.
+    #  * A lapsed ack is dropped and the alert's sent-state wiped, so a check
+    #    that is still failing notifies again as if new.
+    #  * An ack whose check has stayed clear for RECOVERY_GRACE is dropped, so
+    #    a later failure of the same check is not silently swallowed.
+    private def reconcile_acks(agents : Hash(String, AgentRecord), now : Int64) : Set({String, String})
+      muted = Set({String, String}).new
+      @storage.all_acks.each do |ack|
+        key = {ack.hostname, ack.check_name}
+        if ack.expires_at <= now
+          @storage.delete_ack(ack.hostname, ack.check_name)
+          @storage.clear_alert_state_everywhere(ack.hostname, ack.check_name)
+          next
+        end
+        agent = agents[ack.hostname]?
+        if agent && failing_checks(agent, now).includes?(ack.check_name)
+          @storage.touch_ack_active(ack.hostname, ack.check_name, now)
+        elsif now - ack.last_active_at >= RECOVERY_GRACE
+          @storage.delete_ack(ack.hostname, ack.check_name)
+          next
+        end
+        muted << key
+      end
+      muted
+    end
+
+    # Names of the alerts a host currently has (the offline alert when stale).
+    def failing_checks(agent : AgentRecord, now : Int64) : Array(String)
+      return [Alert::OFFLINE] if agent.stale?(@stale_after, now)
+      @storage.alert_checks_for(agent.id).map(&.name)
     end
 
     private def deliver(url : String, dues : Array(Due), now : Int64)
@@ -101,7 +203,12 @@ module JaneHQ
       alerts = dues.map(&.alert).uniq { |a| {a.hostname, a.check} }
       @last_post[url] = now # counts failed attempts too: never faster than MIN_GAP
       if @poster.call(url, Slack.payload(alerts, @base_url))
-        dues.each { |d| @storage.mark_alert_sent(d.rule_id, d.alert.hostname, d.alert.check, now) }
+        @first_due.delete(url)
+        dues.each do |d|
+          # One record per alert and webhook, held by the rule that sent it.
+          (@rule_ids_by_url[url]? || [] of Int64).each { |id| @storage.clear_alert_state(id, d.alert.hostname, d.alert.check) }
+          @storage.mark_alert_sent(d.rule_id, d.alert.hostname, d.alert.check, now)
+        end
         Log.info { "sent #{alerts.size} alert(s) for #{alerts.map(&.hostname).uniq.size} host(s) to slack" }
       end
     end

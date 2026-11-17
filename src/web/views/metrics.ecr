@@ -1,0 +1,150 @@
+<div class="page-head">
+  <h1>Metrics</h1>
+  <p class="subtitle">Per-host CPU, memory and load history. Times are UTC.</p>
+</div>
+
+<form class="metrics-form" method="get" action="/metrics">
+  <label>Host
+    <select name="host" id="metrics-host">
+      <option value=""<%= agent ? "" : " selected" %>>Select a host…</option>
+      <% agents.each do |a| %>
+        <option value="<%= HTML.escape(a.hostname) %>"<%= agent && agent.id == a.id ? " selected" : "" %>><%= HTML.escape(a.hostname) %></option>
+      <% end %>
+    </select>
+  </label>
+  <label>Date
+    <span class="date-step">
+      <button type="button" class="btn" data-days="-1" aria-label="Previous day">&lsaquo;</button>
+      <input type="date" name="date" value="<%= date_s %>" max="<%= today_s %>">
+      <button type="button" class="btn" data-days="1" aria-label="Next day"<%= date_s == today_s ? " disabled" : "" %>>&rsaquo;</button>
+    </span>
+  </label>
+  <label>Processes at (UTC)
+    <input type="time" name="at" value="<%= HTML.escape(at_s) %>" title="Top-processes snapshot at or before this time; blank = end of day / live">
+  </label>
+  <label>Range ending that day
+    <select name="range">
+      <% METRIC_RANGES.each do |(d, label)| %>
+        <option value="<%= d %>"<%= d == range ? " selected" : "" %>><%= label %></option>
+      <% end %>
+    </select>
+  </label>
+  <noscript><button type="submit" class="btn">Show</button></noscript>
+</form>
+
+<% if agent %>
+  <section class="chart-card">
+    <h2>Filesystems <span class="muted small">current usage, as last reported</span></h2>
+    <% if mounts.empty? %>
+      <p class="muted">No filesystem checks reported by <%= HTML.escape(agent.hostname) %>.</p>
+    <% else %>
+      <div class="table-scroll">
+      <table class="mounts">
+        <thead><tr><th>Mount</th><th>Usage</th><th>Limit</th><th>Status</th></tr></thead>
+        <tbody>
+          <% mounts.each do |m| %>
+            <tr>
+              <td><%= HTML.escape(m.name) %></td>
+              <td class="usage-cell">
+                <% if pct = m.pct %>
+                  <span class="usage-bar"><span class="usage-fill<%= m.status == "alert" ? " alert" : "" %>" style="width: <%= pct.clamp(0.0, 100.0).round(1) %>%"></span></span>
+                <% end %>
+                <span class="usage-num"><%= HTML.escape(m.current) %><%= m.pct ? "" : " used" %></span>
+              </td>
+              <td><%= HTML.escape(m.threshold) %></td>
+              <td><span class="badge <%= m.status == "alert" ? "badge-alert" : "badge-ok" %>"><%= m.status == "alert" ? "alert" : "ok" %></span>
+                <% if m.status == "alert" %><span class="muted small"><%= HTML.escape(m.message) %></span><% end %></td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+      </div>
+    <% end %>
+  </section>
+<% end %>
+
+<% if agent && procs.nil? %>
+  <section class="chart-card">
+    <h2>Top processes</h2>
+    <p class="muted">No top-process snapshot stored at or before that time.</p>
+  </section>
+<% end %>
+<% if agent && procs %>
+  <% top, procs_at = procs %>
+  <section class="chart-card">
+    <h2>Top processes <span class="muted small">snapshot from <%= Time.unix(procs_at).to_utc.to_s("%Y-%m-%d %H:%M") %> UTC (<%= JaneHQ.ago(now - procs_at) %> ago)</span></h2>
+    <div class="procs-grid">
+      <% [{"By memory", top.by_memory, "mem"}, {"By CPU", top.by_cpu, "cpu"}, {"By disk I/O", top.by_disk_io, "io"}].each do |(title, list, kind)| %>
+        <div class="table-scroll">
+          <h3><%= title %></h3>
+          <% if list.empty? %>
+            <p class="muted small">None reported.</p>
+          <% else %>
+            <table class="mounts procs">
+              <thead><tr><th>Process</th><th>PID</th>
+                <% if kind == "mem" %><th class="num">Memory</th><th class="num">CPU</th>
+                <% elsif kind == "cpu" %><th class="num">CPU</th><th class="num">Memory</th>
+                <% else %><th class="num">Read</th><th class="num">Write</th>
+                <% end %>
+              </tr></thead>
+              <tbody>
+                <% list.each do |pr| %>
+                  <tr><td><button type="button" class="proc-link" data-proc="<%= HTML.escape({pid: pr.pid, name: pr.name, cpu: pr.cpu_pct.round(1), rss: JaneHQ::Web.fmt_bytes(pr.rss_bytes), read: JaneHQ::Web.fmt_rate(pr.io_read_bps), write: JaneHQ::Web.fmt_rate(pr.io_write_bps), cmdline: pr.details.try(&.cmdline), user: pr.details.try(&.user), uptime: pr.details.try(&.uptime_seconds)}.to_json) %>"><%= HTML.escape(pr.name) %></button></td><td class="muted"><%= pr.pid %></td>
+                    <% if kind == "mem" %><td class="num"><%= JaneHQ::Web.fmt_bytes(pr.rss_bytes) %></td><td class="num"><%= pr.cpu_pct.round(1) %>%</td>
+                    <% elsif kind == "cpu" %><td class="num"><%= pr.cpu_pct.round(1) %>%</td><td class="num"><%= JaneHQ::Web.fmt_bytes(pr.rss_bytes) %></td>
+                    <% else %><td class="num"><%= JaneHQ::Web.fmt_rate(pr.io_read_bps) %></td><td class="num"><%= JaneHQ::Web.fmt_rate(pr.io_write_bps) %></td>
+                    <% end %>
+                  </tr>
+                <% end %>
+              </tbody>
+            </table>
+          <% end %>
+        </div>
+      <% end %>
+    </div>
+  </section>
+<% end %>
+
+<% if agent.nil? %>
+  <p class="muted">Choose a host to see its metrics.</p>
+<% elsif points.empty? %>
+  <p class="muted">No metrics recorded for <%= HTML.escape(agent.hostname) %> between
+    <%= Time.unix(from).to_utc.to_s("%Y-%m-%d %H:%M") %> and <%= Time.unix(to).to_utc.to_s("%Y-%m-%d %H:%M") %> UTC.
+    History starts when the server first received reports after metrics storage was added.</p>
+<% else %>
+  <% gap = {(to - from) // 200, 180_i64}.max %>
+  <% avg = ->(f : Proc(JaneHQ::MetricPoint, Float64)) { points.sum { |p| f.call(p) } / points.size } %>
+  <% load_max = {points.max_of { |p| {p.load1, p.load5, p.load15}.max }.ceil, 1.0}.max %>
+
+  <section class="chart-card">
+    <h2>CPU usage <span class="muted small">avg <%= avg.call(->(p : JaneHQ::MetricPoint) { p.cpu_avg }).round(1) %>% · peak <%= points.max_of(&.cpu_max).round(1) %>%</span></h2>
+    <%= JaneHQ::Web.metric_chart(points, from, to, [{"l-max", "Peak", ->(p : JaneHQ::MetricPoint) { p.cpu_max.as(Float64?) }}, {"l-avg", "Average", ->(p : JaneHQ::MetricPoint) { p.cpu_avg.as(Float64?) }}], 100.0, "%", gap) %>
+  </section>
+
+  <section class="chart-card">
+    <h2>Memory usage <span class="muted small">avg <%= avg.call(->(p : JaneHQ::MetricPoint) { p.mem_avg }).round(1) %>% · peak <%= points.max_of(&.mem_max).round(1) %>%</span></h2>
+    <%= JaneHQ::Web.metric_chart(points, from, to, [{"l-max", "Peak", ->(p : JaneHQ::MetricPoint) { p.mem_max.as(Float64?) }}, {"l-avg", "Average", ->(p : JaneHQ::MetricPoint) { p.mem_avg.as(Float64?) }}], 100.0, "%", gap) %>
+  </section>
+
+  <% swap_pts = points.select(&.swap_avg) %>
+  <% unless swap_pts.empty? %>
+    <section class="chart-card">
+      <h2>Swap usage <span class="muted small">avg <%= (swap_pts.sum { |p| p.swap_avg.not_nil! } / swap_pts.size).round(1) %>% · peak <%= swap_pts.max_of { |p| p.swap_max.not_nil! }.round(1) %>%</span></h2>
+      <%= JaneHQ::Web.metric_chart(points, from, to, [{"l-max", "Peak", ->(p : JaneHQ::MetricPoint) { p.swap_max }}, {"l-avg", "Average", ->(p : JaneHQ::MetricPoint) { p.swap_avg }}], 100.0, "%", gap) %>
+    </section>
+  <% end %>
+
+  <section class="chart-card">
+    <h2>Load average <span class="muted small"><span class="key k1"></span>1m <span class="key k5"></span>5m <span class="key k15"></span>15m</span></h2>
+    <%= JaneHQ::Web.metric_chart(points, from, to, [{"l-15", "15m", ->(p : JaneHQ::MetricPoint) { p.load15.as(Float64?) }}, {"l-5", "5m", ->(p : JaneHQ::MetricPoint) { p.load5.as(Float64?) }}, {"l-1", "1m", ->(p : JaneHQ::MetricPoint) { p.load1.as(Float64?) }}], load_max, "", gap) %>
+  </section>
+  <p class="muted small">CPU and memory: solid line is the average per interval, faint line the peak. <%= points.size %> data points.</p>
+<% end %>
+<div id="proc-modal" hidden>
+  <div class="glance-card" role="dialog" aria-modal="true" aria-labelledby="proc-title">
+    <button type="button" class="glance-close" aria-label="Close">&times;</button>
+    <h2 id="proc-title"></h2>
+    <dl class="proc-detail" id="proc-body"></dl>
+  </div>
+</div>
+<script src="/metrics.js?v=<%= JaneHQ::ASSET_VERSION %>"></script>

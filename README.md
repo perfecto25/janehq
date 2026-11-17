@@ -9,6 +9,34 @@ The JaneHQ master repo
 ## Usage
 
 
+by default, JaneHQ will start its UI/Console on port 8086 and its ingestion service on port 25900
+
+To run JaneHQ on custom ports, start JaneHQ service with these shell variables
+
+
+```
+# JaneHQ UI/console
+JANEHQ_UI_PORT=8080
+
+# JaneHQ ingest port - where agents send their data to
+JANEHQ_INGEST_PORT=25900 
+
+# optional: days of metric history (CPU/memory/swap/load and top processes) to keep; older data is
+# deleted from the database. Default 360.
+JANEHQ_METRICS_RETENTION=360
+
+# for Google OAUTH authentication
+JANEHQ_BASE_URL=https://janehq.example.com
+JANEHQ_GOOGLE_CLIENT_ID=<client id>.apps.googleusercontent.com
+JANEHQ_GOOGLE_CLIENT_SECRET=<client secret>
+# optional: only allow this Workspace domain
+JANEHQ_GOOGLE_DOMAIN=example.com
+```
+
+## Documentation
+
+- [Sign in with Google (Workspace)](docs/google-oauth.md)
+- [Reset a lost superuser password](docs/reset-superuser.md)
 
 ## Development
     

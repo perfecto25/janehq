@@ -1,0 +1,54 @@
+<div class="page-head">
+  <h1>Users</h1>
+  <p class="subtitle">Who can sign in to this console, and what they may do.</p>
+</div>
+<% if notice %><p class="notice"><%= HTML.escape(notice) %></p><% end %>
+<% if error %><p class="error"><%= HTML.escape(error) %></p><% end %>
+
+<div class="table-scroll">
+<table class="groups">
+  <thead><tr><th>Username</th><th>Role</th><th></th></tr></thead>
+  <tbody>
+    <% users.each do |u| %>
+      <tr>
+        <td><%= HTML.escape(u.username) %>
+          <% if u.id == me_id %><span class="badge badge-ok">you</span><% end %>
+          <% if u.google? %><span class="badge">Google</span><% end %>
+          <% if u.disabled %><span class="badge badge-alert">disabled</span><% end %>
+          <% if u.temp_password %><span class="badge badge-alert">temp password</span><% end %>
+        </td>
+        <td title="<%= HTML.escape(JaneHQ::Role.describe(u.role)) %>"><%= JaneHQ::Role.label(u.role) %></td>
+        <td class="row-actions">
+          <div class="actions">
+            <a href="/users/<%= u.id %>/edit" class="btn btn-small btn-edit">Edit</a>
+            <% if u.id != me_id %>
+              <form method="post" action="/users/<%= u.id %>/<%= u.disabled ? "enable" : "disable" %>">
+                <button type="submit" class="btn btn-small"><%= u.disabled ? "Enable" : "Disable" %></button>
+              </form>
+              <form method="post" action="/users/<%= u.id %>/delete"
+                    onsubmit="return confirm('Delete the user <%= HTML.escape(u.username) %>?')">
+                <button type="submit" class="btn btn-small btn-danger">Delete</button>
+              </form>
+            <% end %>
+          </div>
+        </td>
+      </tr>
+    <% end %>
+  </tbody>
+</table>
+</div>
+
+<form method="post" action="/users/create" class="stack-form">
+  <h2>Add user</h2>
+  <label class="field"><span>Username</span>
+    <input type="text" name="username" value="<%= HTML.escape(form_name) %>" maxlength="32" autocomplete="off" required></label>
+  <label class="field"><span>Role</span>
+    <select name="role">
+      <% JaneHQ::Role::ALL.each do |r| %>
+        <option value="<%= r %>"<%= r == form_role ? " selected" : "" %>><%= JaneHQ::Role.label(r) %> — <%= HTML.escape(JaneHQ::Role.describe(r)) %></option>
+      <% end %>
+    </select></label>
+  <label class="field"><span>Password (<%= JaneHQ::Passwords::MIN_LENGTH %>–<%= JaneHQ::Passwords::MAX_LENGTH %> characters)</span>
+    <input type="password" name="password" autocomplete="new-password" minlength="<%= JaneHQ::Passwords::MIN_LENGTH %>" required></label>
+  <p><button type="submit" class="btn btn-primary">Add user</button></p>
+</form>

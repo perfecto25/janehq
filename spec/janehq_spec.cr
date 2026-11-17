@@ -325,7 +325,7 @@ def alert_report(host : String, fs_status : String = "alert")
 end
 
 def make_slack_rule(storage, targets, url, count = "once", freq = 5, services = [] of String)
-  storage.create_alert_group("slack rule", targets, services, ["failed"], [] of String,
+  storage.create_alert_group("slack rule #{Random.rand(1_000_000)}", targets, services, ["failed"], [] of String,
     "slack", url, count, freq)
 end
 
@@ -347,6 +347,45 @@ describe JaneHQ::Notifier do
       bodies[0].should contain "2 alerts on 2 hosts"
       bodies[0].should contain "web-01"
       bodies[0].should contain "db-01"
+    end
+  end
+
+  it "mutes an acknowledged alert until the ack lapses, then notifies again" do
+    with_storage do |storage|
+      storage.persist(alert_report("web-01"))
+      make_slack_rule(storage, [JaneHQ::AlertTarget.host("web-01")], url)
+      now = Time.utc.to_unix
+      names = storage.alert_checks_for(storage.agent_by_hostname("web-01").not_nil!.id).map(&.name)
+      storage.ack_alerts("web-01", names, now + 3600, now)
+
+      count = 0
+      n = JaneHQ::Notifier.new(storage, 100_000, ->(_u : String, _b : String) { count += 1; true })
+      n.tick(now)
+      n.tick(now + 120)
+      count.should eq 0 # acked
+
+      n.tick(now + 3601) # ack lapsed, still failing -> notifies as new
+      count.should eq 1
+      storage.all_acks.should be_empty
+    end
+  end
+
+  it "waits out the batch window so hosts failing moments apart share one message" do
+    with_storage do |storage|
+      now = Time.utc.to_unix
+      storage.persist(alert_report("web-01"), now)
+      make_slack_rule(storage, [JaneHQ::AlertTarget.host("web-01"), JaneHQ::AlertTarget.host("db-01")], url)
+
+      bodies = [] of String
+      n = JaneHQ::Notifier.new(storage, 100_000, ->(_u : String, b : String) { bodies << b; true }, batch_window: 30_i64)
+      n.tick(now)
+      bodies.should be_empty # held back
+      storage.persist(alert_report("db-01"), now + 10)
+      n.tick(now + 10)
+      bodies.should be_empty
+      n.tick(now + 30)
+      bodies.size.should eq 1
+      bodies[0].should contain "2 alerts on 2 hosts"
     end
   end
 
@@ -433,7 +472,7 @@ end
 
 describe JaneHQ::Slack do
   it "escapes mrkdwn control characters and caps blocks at 50" do
-    alerts = (1..80).map { |i| JaneHQ::Alert.new("h#{i}", "Check <x>", "a & b") }
+    alerts = (1..300).map { |i| JaneHQ::Alert.new("h#{i}", "Check <x>", "a & b") }
     json = JaneHQ::Slack.payload(alerts)
     parsed = JSON.parse(json)
     parsed["blocks"].as_a.size.should be <= 50
@@ -499,5 +538,308 @@ describe "alert delivery edge cases" do
     ["sfdfdfd", "http://hooks.slack.com/x", "https://", "https://localhost/x", "https://a b.com/x", ""].each do |bad|
       JaneHQ::AlertRules.webhook_url?(bad).should be_false
     end
+  end
+end
+
+describe "recurring alert consolidation" do
+  it "sends one message with every active alert when any recurring alert is due" do
+    with_storage do |storage|
+      url = "https://hooks.slack.com/services/T/B/X"
+      now = Time.utc.to_unix
+      storage.persist(alert_report("web-01"), now)
+      make_slack_rule(storage, [JaneHQ::AlertTarget.host("web-01"), JaneHQ::AlertTarget.host("db-01")], url, "recurring", 5)
+      bodies = [] of String
+      n = JaneHQ::Notifier.new(storage, 100_000, ->(_u : String, b : String) { bodies << b; true })
+      n.tick(now)
+      storage.persist(alert_report("db-01"), now + 100)
+      n.tick(now + 100) # db-01 is new, web-01 is not yet due again
+      bodies.size.should eq 2
+      bodies[1].should contain "web-01"
+      bodies[1].should contain "db-01"
+      n.tick(now + 100 + 300) # both share one schedule now
+      bodies.size.should eq 3
+      bodies[2].should contain "2 alerts on 2 hosts"
+    end
+  end
+end
+
+describe "hosts in several alert groups" do
+  prod = "https://hooks.slack.com/services/T/B/PROD"
+  test = "https://hooks.slack.com/services/T/B/TEST"
+
+  it "with different webhooks, each channel gets the alert on its own group's schedule" do
+    with_storage do |storage|
+      now = Time.utc.to_unix
+      storage.persist(alert_report("web-01"), now)
+      make_slack_rule(storage, [JaneHQ::AlertTarget.host("web-01")], test, "recurring", 3)
+      make_slack_rule(storage, [JaneHQ::AlertTarget.host("web-01")], prod, "recurring", 1)
+
+      sent = [] of String
+      n = JaneHQ::Notifier.new(storage, 100_000, ->(u : String, _b : String) { sent << u; true })
+      n.tick(now)
+      sent.sort.should eq [prod, test]
+      sent.clear
+      n.tick(now + 60)
+      sent.should eq [prod]
+      n.tick(now + 180)
+      sent.sort.should eq [prod, prod, test]
+    end
+  end
+
+  it "with the same webhook, sends once at the shortest frequency" do
+    with_storage do |storage|
+      now = Time.utc.to_unix
+      storage.persist(alert_report("web-01"), now)
+      make_slack_rule(storage, [JaneHQ::AlertTarget.host("web-01")], prod, "recurring", 3)
+      make_slack_rule(storage, [JaneHQ::AlertTarget.host("web-01")], prod, "recurring", 1)
+
+      sent = 0
+      n = JaneHQ::Notifier.new(storage, 100_000, ->(_u : String, _b : String) { sent += 1; true })
+      n.tick(now)
+      n.tick(now + 60)
+      n.tick(now + 120)
+      sent.should eq 3
+    end
+  end
+
+  it "sends two hosts of one group as a single message each interval" do
+    with_storage do |storage|
+      now = Time.utc.to_unix
+      storage.persist(alert_report("web-01"), now)
+      storage.persist(alert_report("db-01"), now)
+      make_slack_rule(storage, [JaneHQ::AlertTarget.host("web-01"), JaneHQ::AlertTarget.host("db-01")], prod, "recurring", 2)
+
+      bodies = [] of String
+      n = JaneHQ::Notifier.new(storage, 100_000, ->(_u : String, b : String) { bodies << b; true })
+      n.tick(now)
+      n.tick(now + 119)
+      bodies.size.should eq 1
+      n.tick(now + 120)
+      bodies.size.should eq 2
+      bodies[1].should contain "2 alerts on 2 hosts"
+    end
+  end
+end
+
+describe "metric time series" do
+  it "buckets reports per minute, rolls up to hours, and serves a series" do
+    storage = JaneHQ::Storage.new(":memory:")
+    base = 1_700_000_000_i64 - 1_700_000_000_i64 % 3600                          # hour-aligned
+    payload = JaneHQ::Processor.decode(wire_bytes(sample_report_json("web-01"))) # cpu 8.45, mem 71.9, load 1.23
+    3.times { |i| storage.persist(payload, base + i * 10) }                      # same minute
+    storage.persist(payload, base + 60)
+    id = storage.agent_by_hostname("web-01").not_nil!.id
+
+    pts = storage.metric_series(id, base, base + 3599, now: base + 3600)
+    pts.size.should eq 2
+    pts[0].cpu_avg.should be_close(8.45, 0.001)
+    pts[0].mem_max.should be_close(71.9, 0.001)
+    pts[0].load1.should be_close(1.23, 0.001)
+
+    storage.rollup_metrics!(base + 3600 + 8 * 86_400) # minutes now past retention
+    storage.metric_series(id, base, base + 3599, now: base + 3600 + 8 * 86_400).size.should eq 1
+  end
+end
+
+describe "metrics retention" do
+  it "deletes hourly and minute rows older than the retention window" do
+    storage = JaneHQ::Storage.new(":memory:")
+    base = 1_700_000_000_i64 - 1_700_000_000_i64 % 3600
+    storage.persist(JaneHQ::Processor.decode(wire_bytes(sample_report_json("web-01"))), base)
+    id = storage.agent_by_hostname("web-01").not_nil!.id
+    now = base + 3600 + 10 * 86_400
+    storage.rollup_metrics!(now, 360)
+    storage.metric_series(id, base, base + 3599, now: now).size.should eq 1 # hourly row kept
+    now = base + 3600 + 11 * 86_400
+    storage.rollup_metrics!(now, 10)
+    storage.metric_series(id, base, base + 3599, now: now).size.should eq 0
+  end
+
+  it "parses JANEHQ_METRICS_RETENTION" do
+    JaneHQ::Config.parse_retention(nil).should eq 360
+    JaneHQ::Config.parse_retention("30").should eq 30
+    JaneHQ::Config.parse_retention("0").should be_nil
+    JaneHQ::Config.parse_retention("abc").should be_nil
+  end
+end
+
+describe "top process history" do
+  it "keeps 5-minute snapshots, thins old ones to hourly, and prunes past retention" do
+    storage = JaneHQ::Storage.new(":memory:")
+    json = JSON.parse(sample_report_json("web-01")).as_h
+    m = json["metrics"].as_h
+    m["top_procs"] = JSON.parse(%({"by_memory":[{"pid":1,"name":"chrome","rss_bytes":5}],"by_cpu":[],"by_disk_io":[]}))
+    json["metrics"] = JSON::Any.new(m)
+    payload = JaneHQ::Processor.decode(wire_bytes(json.to_json))
+    base = 1_700_000_000_i64 - 1_700_000_000_i64 % 3600
+    [0, 10, 300, 600, 3600].each { |o| storage.persist(payload, base + o) } # 0/10 share a bucket
+    id = storage.agent_by_hostname("web-01").not_nil!.id
+    storage.top_procs_at(id, base + 299).not_nil![1].should eq base
+    storage.top_procs_at(id, base + 700).not_nil![1].should eq base + 600
+    storage.top_procs_at(id, base - 1).should be_nil
+    storage.rollup_metrics!(base + 8 * 86_400, 360) # past the 5-minute tier: one per hour
+    storage.top_procs_at(id, base + 700).not_nil![1].should eq base
+    storage.top_procs_at(id, base + 3700).not_nil![1].should eq base + 3600
+    storage.rollup_metrics!(base + 3600 + 10 * 86_400, 10) # past retention
+    storage.top_procs_at(id, base + 3700).not_nil![1].should eq base + 3600
+    storage.rollup_metrics!(base + 3601 + 10 * 86_400, 10)
+    storage.top_procs_at(id, base + 3700).should be_nil
+  end
+end
+
+describe "top processes" do
+  it "ingests top_procs (I/O fields optional), keeps the latest snapshot, tolerates older agents" do
+    storage = JaneHQ::Storage.new(":memory:")
+    json = JSON.parse(sample_report_json("web-01")).as_h
+    m = json["metrics"].as_h
+    m["top_procs"] = JSON.parse(%({"by_memory":[{"pid":1,"name":"chrome","cpu_pct":0.5,"rss_bytes":1133727744,"io_read_bps":0.0,"io_write_bps":31009.8},{"pid":2,"name":"Xorg","cpu_pct":0.1,"rss_bytes":373948416}],"by_cpu":[],"by_disk_io":[{"pid":3,"name":"janehq","cpu_pct":0.0,"rss_bytes":1,"io_write_bps":138600.6}]}))
+    json["metrics"] = JSON::Any.new(m)
+    storage.persist(JaneHQ::Payload.from_json(json.to_json))
+    id = storage.agent_by_hostname("web-01").not_nil!.id
+
+    top, _ = storage.top_procs_for(id).not_nil!
+    top.by_memory.map(&.name).should eq ["chrome", "Xorg"]
+    top.by_memory[1].io_write_bps.should be_nil
+    top.by_disk_io[0].io_bps.should be_close(138600.6, 0.01)
+
+    # an older agent (no top_procs) leaves the last snapshot in place
+    storage.persist(JaneHQ::Processor.decode(wire_bytes(sample_report_json("web-01"))))
+    storage.top_procs_for(id).should_not be_nil
+    storage.top_procs_for(id + 99).should be_nil
+  end
+end
+
+describe "swap metric" do
+  it "is recorded from the Swap Usage check, survives rollup, and is nil without it" do
+    storage = JaneHQ::Storage.new(":memory:")
+    base = 1_700_000_000_i64 - 1_700_000_000_i64 % 3600
+    plain = JaneHQ::Processor.decode(wire_bytes(sample_report_json("web-01")))
+    storage.persist(plain, base)
+    id = storage.agent_by_hostname("web-01").not_nil!.id
+    storage.metric_series(id, base, base + 3599, now: base + 3600)[0].swap_avg.should be_nil
+
+    json = JSON.parse(sample_report_json("web-01")).as_h
+    json["checks"] = JSON.parse(%([{"name":"Swap Usage","status":"ok","current":"12.50%","threshold":"50%","message":"Within limits"}]))
+    swappy = JaneHQ::Payload.from_json(json.to_json)
+    storage.persist(swappy, base + 60)
+    storage.persist(swappy, base + 120)
+    pts = storage.metric_series(id, base + 60, base + 3599, now: base + 3600)
+    pts[0].swap_avg.not_nil!.should be_close(12.5, 0.001)
+    pts[0].swap_max.not_nil!.should be_close(12.5, 0.001)
+
+    storage.rollup_metrics!(base + 3600 + 8 * 86_400)
+    storage.metric_series(id, base, base + 3599, now: base + 3600 + 8 * 86_400)[0].swap_avg.not_nil!.should be_close(12.5, 0.001)
+  end
+end
+
+describe "user prefs" do
+  it "stores and overwrites a per-user value" do
+    storage = JaneHQ::Storage.new(":memory:")
+    storage.pref("admin", "dashboard_group").should be_nil
+    storage.set_pref("admin", "dashboard_group", "3")
+    storage.set_pref("admin", "dashboard_group", "4")
+    storage.pref("admin", "dashboard_group").should eq "4"
+    storage.pref("other", "dashboard_group").should be_nil
+  end
+end
+
+describe "users" do
+  it "generates 15-40 character passwords" do
+    lens = Array.new(200) { JaneHQ::Passwords.generate.size }
+    lens.min.should be >= 15
+    lens.max.should be <= 40
+    JaneHQ::Passwords.generate.should_not eq JaneHQ::Passwords.generate
+  end
+
+  it "creates, authenticates, and protects users" do
+    storage = JaneHQ::Storage.new(":memory:")
+    id = storage.create_user("superjane", "temp-password-123", JaneHQ::Role::SUPERUSER, temp: true)
+    storage.temp_password_users.should eq ["superjane"]
+    user = storage.user_by_name("SuperJane").not_nil! # case-insensitive
+    JaneHQ::Passwords.verify?("temp-password-123", user.password_hash).should be_true
+    JaneHQ::Passwords.verify?("wrong", user.password_hash).should be_false
+
+    storage.set_user_password(id, "a-new-password-456")
+    storage.temp_password_users.should be_empty
+    storage.superuser_count.should eq 1
+    JaneHQ::Role.can_write?(JaneHQ::Role::READ_ONLY).should be_false
+    JaneHQ::Role.can_write?(JaneHQ::Role::STAFF).should be_true
+  end
+end
+
+describe "google sign-in" do
+  config = JaneHQ::Config.new("admin", nil, 80, 25900, ":memory:", "s", 30, nil,
+    "cid", "secret", "example.com")
+
+  token = ->(claims : Hash(String, String | Int64 | Bool)) do
+    "x.#{Base64.urlsafe_encode(claims.to_json, padding: false)}.y"
+  end
+  good = {"iss" => "https://accounts.google.com", "aud" => "cid", "exp" => 2_000_000_000_i64,
+          "sub" => "123", "email" => "Jo@Example.com", "email_verified" => true, "hd" => "example.com"}
+
+  it "is only enabled when client id, secret and domain are all set" do
+    mk = ->(id : String?, sec : String?, dom : String?) {
+      JaneHQ::Config.new("a", nil, 80, 25900, ":memory:", "s", 30, nil, id, sec, dom)
+    }
+    mk.call("cid", "sec", "example.com").google_enabled?.should be_true
+    mk.call("cid", "sec", nil).google_enabled?.should be_false
+    mk.call("cid", "sec", nil).google_partial?.should be_true
+    mk.call(nil, nil, nil).google_partial?.should be_false
+  end
+
+  it "fails closed when no domain is configured" do
+    open = JaneHQ::Config.new("a", nil, 80, 25900, ":memory:", "s", 30, nil, "cid", "secret", nil)
+    expect_raises(JaneHQ::Google::Error) { JaneHQ::Google.identity(open, token.call(good), 1_000_i64) }
+  end
+
+  it "accepts a valid token and lowercases the email" do
+    id = JaneHQ::Google.identity(config, token.call(good), 1_000_i64)
+    id.email.should eq "jo@example.com"
+    id.sub.should eq "123"
+  end
+
+  it "rejects wrong audience, unverified email, expired, and other domains" do
+    {
+      good.merge({"aud" => "other"}),
+      good.merge({"email_verified" => false}),
+      good.merge({"exp" => 5_i64}),
+      good.merge({"hd" => "evil.com", "email" => "a@evil.com"}),
+      good.merge({"hd" => "example.com", "email" => "a@evil.com"}),
+    }.each do |claims|
+      expect_raises(JaneHQ::Google::Error) { JaneHQ::Google.identity(config, token.call(claims), 1_000_i64) }
+    end
+  end
+
+  it "creates a read_only local user once, which cannot use password login" do
+    storage = JaneHQ::Storage.new(":memory:")
+    id = JaneHQ::Google::Identity.new("123", "jo@example.com")
+    user = JaneHQ::Google.find_or_create_user(storage, id).not_nil!
+    user.role.should eq JaneHQ::Role::READ_ONLY
+    user.google?.should be_true
+    JaneHQ::Google.find_or_create_user(storage, id).not_nil!.id.should eq user.id
+    storage.user_count.should eq 1
+    JaneHQ::Passwords.verify?("", user.password_hash).should be_false
+    storage.set_user_role(user.id, JaneHQ::Role::STAFF)
+    JaneHQ::Google.find_or_create_user(storage, id).not_nil!.role.should eq JaneHQ::Role::STAFF
+  end
+end
+
+describe "JaneHQ.reset_superuser" do
+  it "creates superjane when missing, then resets password, role and enabled flag" do
+    st = JaneHQ::Storage.new(":memory:")
+    JaneHQ.reset_superuser(st).should be_true
+    u = st.user_by_name("superjane").not_nil!
+    u.role.should eq JaneHQ::Role::SUPERUSER
+    u.temp_password.should be_true
+
+    st.set_user_disabled(u.id, true)
+    st.set_user_role(u.id, JaneHQ::Role::READ_ONLY)
+    old = u.password_hash
+    JaneHQ.reset_superuser(st).should be_true
+    u = st.user_by_name("superjane").not_nil!
+    u.password_hash.should_not eq old
+    u.disabled.should be_false
+    u.role.should eq JaneHQ::Role::SUPERUSER
+    st.user_count.should eq 1
   end
 end
